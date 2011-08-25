@@ -4,7 +4,7 @@
 
 include $(GOROOT)/src/Make.inc
 
-TARG=snappy-go.googlecode.com/hg/zigzag
+TARG=snappy-go.googlecode.com/hg/varint/zigzag
 GOFILES=\
 	zigzag.go\
 

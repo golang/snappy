@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
-// Package varint implements a variable-width byte encoding of integers.
+// Package varint implements a variable-width encoding of unsigned integers.
 //
 // It is the same format used by protocol buffers. The format is described at
 // http://code.google.com/apis/protocolbuffers/docs/encoding.html
