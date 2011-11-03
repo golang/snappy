@@ -5,29 +5,29 @@
 package snappy
 
 import (
-	"os"
+	"errors"
 
 	"snappy-go.googlecode.com/hg/varint"
 )
 
 // ErrCorrupt reports that the input is invalid.
-var ErrCorrupt = os.NewError("snappy: corrupt input")
+var ErrCorrupt = errors.New("snappy: corrupt input")
 
 // DecodedLen returns the length of the decoded block.
-func DecodedLen(src []byte) (int, os.Error) {
+func DecodedLen(src []byte) (int, error) {
 	v, _, err := decodedLen(src)
 	return v, err
 }
 
 // decodedLen returns the length of the decoded block and the number of bytes
 // that the length header occupied.
-func decodedLen(src []byte) (blockLen, headerLen int, err os.Error) {
+func decodedLen(src []byte) (blockLen, headerLen int, err error) {
 	v, n := varint.Decode(src)
 	if n == 0 {
 		return 0, 0, ErrCorrupt
 	}
 	if uint64(int(v)) != v {
-		return 0, 0, os.NewError("snappy: decoded block is too large")
+		return 0, 0, errors.New("snappy: decoded block is too large")
 	}
 	return int(v), n, nil
 }
@@ -36,7 +36,7 @@ func decodedLen(src []byte) (blockLen, headerLen int, err os.Error) {
 // slice of dst if dst was large enough to hold the entire decoded block.
 // Otherwise, a newly allocated slice will be returned.
 // It is valid to pass a nil dst.
-func Decode(dst, src []byte) ([]byte, os.Error) {
+func Decode(dst, src []byte) ([]byte, error) {
 	dLen, s, err := decodedLen(src)
 	if err != nil {
 		return nil, err
@@ -80,7 +80,7 @@ func Decode(dst, src []byte) ([]byte, os.Error) {
 			}
 			length = int(x + 1)
 			if length <= 0 {
-				return nil, os.NewError("snappy: unsupported literal length")
+				return nil, errors.New("snappy: unsupported literal length")
 			}
 			if length > len(dst)-d || length > len(src)-s {
 				return nil, ErrCorrupt
@@ -107,7 +107,7 @@ func Decode(dst, src []byte) ([]byte, os.Error) {
 			offset = int(src[s-2]) | int(src[s-1])<<8
 
 		case tagCopy4:
-			return nil, os.NewError("snappy: unsupported COPY_4 tag")
+			return nil, errors.New("snappy: unsupported COPY_4 tag")
 		}
 
 		end := d + length

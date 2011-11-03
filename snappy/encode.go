@@ -5,8 +5,6 @@
 package snappy
 
 import (
-	"os"
-
 	"snappy-go.googlecode.com/hg/varint"
 )
 
@@ -88,7 +86,7 @@ func emitCopy(dst []byte, offset, length int) int {
 // slice of dst if dst was large enough to hold the entire encoded block.
 // Otherwise, a newly allocated slice will be returned.
 // It is valid to pass a nil dst.
-func Encode(dst, src []byte) ([]byte, os.Error) {
+func Encode(dst, src []byte) ([]byte, error) {
 	if n := MaxEncodedLen(len(src)); len(dst) < n {
 		dst = make([]byte, n)
 	}

@@ -8,13 +8,12 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
-	"os"
 	"rand"
 	"strings"
 	"testing"
 )
 
-func roundtrip(b []byte) os.Error {
+func roundtrip(b []byte) error {
 	e, err := Encode(nil, b)
 	if err != nil {
 		return fmt.Errorf("encoding error: %v", err)
