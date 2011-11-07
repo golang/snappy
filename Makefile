@@ -8,8 +8,6 @@ all: install
 
 # The order matters: earlier packages may not depend on later ones.
 DIRS=\
-	varint/zigzag\
-	varint\
 	snappy\
 
 install clean nuke:

@@ -5,9 +5,8 @@
 package snappy
 
 import (
+	"encoding/binary"
 	"errors"
-
-	"snappy-go.googlecode.com/hg/varint"
 )
 
 // ErrCorrupt reports that the input is invalid.
@@ -22,7 +21,7 @@ func DecodedLen(src []byte) (int, error) {
 // decodedLen returns the length of the decoded block and the number of bytes
 // that the length header occupied.
 func decodedLen(src []byte) (blockLen, headerLen int, err error) {
-	v, n := varint.Decode(src)
+	v, n := binary.Uvarint(src)
 	if n == 0 {
 		return 0, 0, ErrCorrupt
 	}

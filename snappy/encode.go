@@ -5,7 +5,7 @@
 package snappy
 
 import (
-	"snappy-go.googlecode.com/hg/varint"
+	"encoding/binary"
 )
 
 // We limit how far copy back-references can go, the same as the C++ code.
@@ -92,7 +92,7 @@ func Encode(dst, src []byte) ([]byte, error) {
 	}
 
 	// The block starts with the varint-encoded length of the decompressed bytes.
-	d := varint.Encode(dst, uint64(len(src)))
+	d := binary.PutUvarint(dst, uint64(len(src)))
 
 	// Return early if src is short.
 	if len(src) <= 4 {
