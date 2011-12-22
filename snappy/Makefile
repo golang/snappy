@@ -4,7 +4,7 @@
 
 include $(GOROOT)/src/Make.inc
 
-TARG=snappy-go.googlecode.com/hg/snappy
+TARG=code.google.com/p/snappy-go/snappy
 GOFILES=\
 	decode.go\
 	encode.go\

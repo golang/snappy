@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
-	"rand"
+	"math/rand"
 	"strings"
 	"testing"
 )
