@@ -117,5 +117,8 @@ func Decode(dst, src []byte) ([]byte, error) {
 			dst[d] = dst[d-offset]
 		}
 	}
-	return dst, nil
+	if d != dLen {
+		return nil, ErrCorrupt
+	}
+	return dst[:d], nil
 }

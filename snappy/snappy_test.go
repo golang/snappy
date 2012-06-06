@@ -13,12 +13,12 @@ import (
 	"testing"
 )
 
-func roundtrip(b []byte) error {
-	e, err := Encode(nil, b)
+func roundtrip(b, ebuf, dbuf []byte) error {
+	e, err := Encode(ebuf, b)
 	if err != nil {
 		return fmt.Errorf("encoding error: %v", err)
 	}
-	d, err := Decode(nil, e)
+	d, err := Decode(dbuf, e)
 	if err != nil {
 		return fmt.Errorf("decoding error: %v", err)
 	}
@@ -28,11 +28,21 @@ func roundtrip(b []byte) error {
 	return nil
 }
 
+func TestEmpty(t *testing.T) {
+	if err := roundtrip(nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSmallCopy(t *testing.T) {
-	for i := 0; i < 32; i++ {
-		s := "aaaa" + strings.Repeat("b", i) + "aaaabbbb"
-		if err := roundtrip([]byte(s)); err != nil {
-			t.Fatalf("i=%d: %v", i, err)
+	for _, ebuf := range [][]byte{nil, make([]byte, 20), make([]byte, 64)} {
+		for _, dbuf := range [][]byte{nil, make([]byte, 20), make([]byte, 64)} {
+			for i := 0; i < 32; i++ {
+				s := "aaaa" + strings.Repeat("b", i) + "aaaabbbb"
+				if err := roundtrip([]byte(s), ebuf, dbuf); err != nil {
+					t.Errorf("len(ebuf)=%d, len(dbuf)=%d, i=%d: %v", len(ebuf), len(dbuf), i, err)
+				}
+			}
 		}
 	}
 }
@@ -44,7 +54,7 @@ func TestSmallRand(t *testing.T) {
 		for i, _ := range b {
 			b[i] = uint8(rand.Uint32())
 		}
-		if err := roundtrip(b); err != nil {
+		if err := roundtrip(b, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -56,7 +66,7 @@ func TestSmallRegular(t *testing.T) {
 		for i, _ := range b {
 			b[i] = uint8(i%10 + 'a')
 		}
-		if err := roundtrip(b); err != nil {
+		if err := roundtrip(b, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

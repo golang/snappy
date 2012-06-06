@@ -96,7 +96,9 @@ func Encode(dst, src []byte) ([]byte, error) {
 
 	// Return early if src is short.
 	if len(src) <= 4 {
-		d += emitLiteral(dst[d:], src)
+		if len(src) != 0 {
+			d += emitLiteral(dst[d:], src)
+		}
 		return dst[:d], nil
 	}
 
