@@ -22,6 +22,7 @@ _obj
 _test
 _testmain.go
 build.out
+snappy/testdata
 test.out
 y.tab.[ch]
 
