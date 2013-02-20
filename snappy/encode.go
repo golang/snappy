@@ -110,9 +110,6 @@ func Encode(dst, src []byte) ([]byte, error) {
 		tableSize *= 2
 	}
 	var table [maxTableSize]int
-	for i := 0; i < tableSize; i++ {
-		table[i] = -1
-	}
 
 	// Iterate over the source bytes.
 	var (
@@ -122,11 +119,16 @@ func Encode(dst, src []byte) ([]byte, error) {
 	)
 	for s+3 < len(src) {
 		// Update the hash table.
-		h := uint32(src[s]) | uint32(src[s+1])<<8 | uint32(src[s+2])<<16 | uint32(src[s+3])<<24
-		h = (h * 0x1e35a7bd) >> shift
-		t, table[h] = table[h], s
+		b0, b1, b2, b3 := src[s], src[s+1], src[s+2], src[s+3]
+		h := uint32(b0) | uint32(b1)<<8 | uint32(b2)<<16 | uint32(b3)<<24
+		p := &table[(h*0x1e35a7bd)>>shift]
+		// We need to to store values in [-1, inf) in table. To save
+		// some initialization time, (re)use the table's zero value
+		// and shift the values against this zero: add 1 on writes,
+		// subtract 1 on reads.
+		t, *p = *p-1, s+1
 		// If t is invalid or src[s:s+4] differs from src[t:t+4], accumulate a literal byte.
-		if t < 0 || s-t >= maxOffset || !equal4(src, t, s) {
+		if t < 0 || s-t >= maxOffset || b0 != src[t] || b1 != src[t+1] || b2 != src[t+2] || b3 != src[t+3] {
 			s++
 			continue
 		}
