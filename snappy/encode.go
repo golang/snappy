@@ -11,14 +11,6 @@ import (
 // We limit how far copy back-references can go, the same as the C++ code.
 const maxOffset = 1 << 15
 
-// equal4 returns whether b[i:i+4] equals b[j:j+4].
-func equal4(b []byte, i, j int) bool {
-	return b[i] == b[j] &&
-		b[i+1] == b[j+1] &&
-		b[i+2] == b[j+2] &&
-		b[i+3] == b[j+3]
-}
-
 // emitLiteral writes a literal chunk and returns the number of bytes written.
 func emitLiteral(dst, lit []byte) int {
 	i, n := 0, uint(len(lit)-1)
