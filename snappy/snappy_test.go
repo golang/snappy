@@ -58,7 +58,7 @@ func TestSmallRand(t *testing.T) {
 	rand.Seed(27354294)
 	for n := 1; n < 20000; n += 23 {
 		b := make([]byte, n)
-		for i, _ := range b {
+		for i := range b {
 			b[i] = uint8(rand.Uint32())
 		}
 		if err := roundtrip(b, nil, nil); err != nil {
@@ -70,11 +70,43 @@ func TestSmallRand(t *testing.T) {
 func TestSmallRegular(t *testing.T) {
 	for n := 1; n < 20000; n += 23 {
 		b := make([]byte, n)
-		for i, _ := range b {
+		for i := range b {
 			b[i] = uint8(i%10 + 'a')
 		}
 		if err := roundtrip(b, nil, nil); err != nil {
 			t.Fatal(err)
+		}
+	}
+}
+
+func TestFramingFormat(t *testing.T) {
+loop:
+	for _, tf := range testFiles {
+		if err := downloadTestdata(tf.filename); err != nil {
+			t.Fatalf("failed to download testdata: %s", err)
+		}
+		src := readFile(t, filepath.Join("testdata", tf.filename))
+		buf := new(bytes.Buffer)
+		if _, err := NewWriter(buf).Write(src); err != nil {
+			t.Errorf("%s: encoding: %v", tf.filename, err)
+			continue
+		}
+		dst, err := ioutil.ReadAll(NewReader(buf))
+		if err != nil {
+			t.Errorf("%s: decoding: %v", tf.filename, err)
+			continue
+		}
+		if !bytes.Equal(dst, src) {
+			if len(dst) != len(src) {
+				t.Errorf("%s: got %d bytes, want %d", tf.filename, len(dst), len(src))
+				continue
+			}
+			for i := range dst {
+				if dst[i] != src[i] {
+					t.Errorf("%s: byte #%d: got 0x%02x, want 0x%02x", tf.filename, i, dst[i], src[i])
+					continue loop
+				}
+			}
 		}
 	}
 }
@@ -102,7 +134,7 @@ func benchEncode(b *testing.B, src []byte) {
 	}
 }
 
-func readFile(b *testing.B, filename string) []byte {
+func readFile(b testing.TB, filename string) []byte {
 	src, err := ioutil.ReadFile(filename)
 	if err != nil {
 		b.Fatalf("failed reading %s: %s", filename, err)
@@ -175,6 +207,19 @@ const baseURL = "https://snappy.googlecode.com/svn/trunk/testdata/"
 
 func downloadTestdata(basename string) (errRet error) {
 	filename := filepath.Join("testdata", basename)
+	if stat, err := os.Stat(filename); err == nil && stat.Size() != 0 {
+		return nil
+	}
+
+	if !*download {
+		return fmt.Errorf("test data not found; skipping benchmark without the -download flag")
+	}
+	// Download the official snappy C++ implementation reference test data
+	// files for benchmarking.
+	if err := os.Mkdir("testdata", 0777); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("failed to create testdata: %s", err)
+	}
+
 	f, err := os.Create(filename)
 	if err != nil {
 		return fmt.Errorf("failed to create %s: %s", filename, err)
@@ -198,23 +243,10 @@ func downloadTestdata(basename string) (errRet error) {
 }
 
 func benchFile(b *testing.B, n int, decode bool) {
-	filename := filepath.Join("testdata", testFiles[n].filename)
-	if stat, err := os.Stat(filename); err != nil || stat.Size() == 0 {
-		if !*download {
-			b.Fatal("test data not found; skipping benchmark without the -download flag")
-		}
-		// Download the official snappy C++ implementation reference test data
-		// files for benchmarking.
-		if err := os.Mkdir("testdata", 0777); err != nil && !os.IsExist(err) {
-			b.Fatalf("failed to create testdata: %s", err)
-		}
-		for _, tf := range testFiles {
-			if err := downloadTestdata(tf.filename); err != nil {
-				b.Fatalf("failed to download testdata: %s", err)
-			}
-		}
+	if err := downloadTestdata(testFiles[n].filename); err != nil {
+		b.Fatalf("failed to download testdata: %s", err)
 	}
-	data := readFile(b, filename)
+	data := readFile(b, filepath.Join("testdata", testFiles[n].filename))
 	if decode {
 		benchDecode(b, data)
 	} else {
