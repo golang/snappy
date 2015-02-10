@@ -18,7 +18,10 @@ import (
 	"testing"
 )
 
-var download = flag.Bool("download", false, "If true, download any missing files before running benchmarks")
+var (
+	download = flag.Bool("download", false, "If true, download any missing files before running benchmarks")
+	testdata = flag.String("testdata", "testdata", "Directory containing the test data")
+)
 
 func roundtrip(b, ebuf, dbuf []byte) error {
 	e, err := Encode(ebuf, b)
@@ -96,7 +99,7 @@ func TestFramingFormat(t *testing.T) {
 		if err := downloadTestdata(tf.filename); err != nil {
 			t.Fatalf("failed to download testdata: %s", err)
 		}
-		src := readFile(t, filepath.Join("testdata", tf.filename))
+		src := readFile(t, filepath.Join(*testdata, tf.filename))
 		buf := new(bytes.Buffer)
 		if _, err := NewWriter(buf).Write(src); err != nil {
 			t.Errorf("%s: encoding: %v", tf.filename, err)
@@ -140,7 +143,7 @@ func TestReaderReset(t *testing.T) {
 				continue
 			}
 			if err := cmp(got, gold); err != nil {
-				t.Errorf("%#d: %v", i, err)
+				t.Errorf("#%d: %v", i, err)
 				continue
 			}
 		case invalid:
@@ -250,7 +253,7 @@ func BenchmarkWordsEncode1e5(b *testing.B) { benchWords(b, 1e5, false) }
 func BenchmarkWordsEncode1e6(b *testing.B) { benchWords(b, 1e6, false) }
 
 // testFiles' values are copied directly from
-// https://code.google.com/p/snappy/source/browse/trunk/snappy_unittest.cc.
+// https://raw.githubusercontent.com/google/snappy/master/snappy_unittest.cc
 // The label field is unused in snappy-go.
 var testFiles = []struct {
 	label    string
@@ -258,29 +261,23 @@ var testFiles = []struct {
 }{
 	{"html", "html"},
 	{"urls", "urls.10K"},
-	{"jpg", "house.jpg"},
-	{"pdf", "mapreduce-osdi-1.pdf"},
+	{"jpg", "fireworks.jpeg"},
+	{"jpg_200", "fireworks.jpeg"},
+	{"pdf", "paper-100k.pdf"},
 	{"html4", "html_x_4"},
-	{"cp", "cp.html"},
-	{"c", "fields.c"},
-	{"lsp", "grammar.lsp"},
-	{"xls", "kennedy.xls"},
 	{"txt1", "alice29.txt"},
 	{"txt2", "asyoulik.txt"},
 	{"txt3", "lcet10.txt"},
 	{"txt4", "plrabn12.txt"},
-	{"bin", "ptt5"},
-	{"sum", "sum"},
-	{"man", "xargs.1"},
 	{"pb", "geo.protodata"},
 	{"gaviota", "kppkn.gtb"},
 }
 
 // The test data files are present at this canonical URL.
-const baseURL = "https://snappy.googlecode.com/svn/trunk/testdata/"
+const baseURL = "https://raw.githubusercontent.com/google/snappy/master/testdata/"
 
 func downloadTestdata(basename string) (errRet error) {
-	filename := filepath.Join("testdata", basename)
+	filename := filepath.Join(*testdata, basename)
 	if stat, err := os.Stat(filename); err == nil && stat.Size() != 0 {
 		return nil
 	}
@@ -290,7 +287,7 @@ func downloadTestdata(basename string) (errRet error) {
 	}
 	// Download the official snappy C++ implementation reference test data
 	// files for benchmarking.
-	if err := os.Mkdir("testdata", 0777); err != nil && !os.IsExist(err) {
+	if err := os.Mkdir(*testdata, 0777); err != nil && !os.IsExist(err) {
 		return fmt.Errorf("failed to create testdata: %s", err)
 	}
 
@@ -304,14 +301,18 @@ func downloadTestdata(basename string) (errRet error) {
 			os.Remove(filename)
 		}
 	}()
-	resp, err := http.Get(baseURL + basename)
+	url := baseURL + basename
+	resp, err := http.Get(url)
 	if err != nil {
-		return fmt.Errorf("failed to download %s: %s", baseURL+basename, err)
+		return fmt.Errorf("failed to download %s: %s", url, err)
 	}
 	defer resp.Body.Close()
+	if s := resp.StatusCode; s != http.StatusOK {
+		return fmt.Errorf("downloading %s: HTTP status code %d (%s)", url, s, http.StatusText(s))
+	}
 	_, err = io.Copy(f, resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to write %s: %s", filename, err)
+		return fmt.Errorf("failed to download %s to %s: %s", url, filename, err)
 	}
 	return nil
 }
@@ -320,7 +321,7 @@ func benchFile(b *testing.B, n int, decode bool) {
 	if err := downloadTestdata(testFiles[n].filename); err != nil {
 		b.Fatalf("failed to download testdata: %s", err)
 	}
-	data := readFile(b, filepath.Join("testdata", testFiles[n].filename))
+	data := readFile(b, filepath.Join(*testdata, testFiles[n].filename))
 	if decode {
 		benchDecode(b, data)
 	} else {
@@ -341,12 +342,6 @@ func Benchmark_UFlat8(b *testing.B)  { benchFile(b, 8, true) }
 func Benchmark_UFlat9(b *testing.B)  { benchFile(b, 9, true) }
 func Benchmark_UFlat10(b *testing.B) { benchFile(b, 10, true) }
 func Benchmark_UFlat11(b *testing.B) { benchFile(b, 11, true) }
-func Benchmark_UFlat12(b *testing.B) { benchFile(b, 12, true) }
-func Benchmark_UFlat13(b *testing.B) { benchFile(b, 13, true) }
-func Benchmark_UFlat14(b *testing.B) { benchFile(b, 14, true) }
-func Benchmark_UFlat15(b *testing.B) { benchFile(b, 15, true) }
-func Benchmark_UFlat16(b *testing.B) { benchFile(b, 16, true) }
-func Benchmark_UFlat17(b *testing.B) { benchFile(b, 17, true) }
 func Benchmark_ZFlat0(b *testing.B)  { benchFile(b, 0, false) }
 func Benchmark_ZFlat1(b *testing.B)  { benchFile(b, 1, false) }
 func Benchmark_ZFlat2(b *testing.B)  { benchFile(b, 2, false) }
@@ -359,9 +354,3 @@ func Benchmark_ZFlat8(b *testing.B)  { benchFile(b, 8, false) }
 func Benchmark_ZFlat9(b *testing.B)  { benchFile(b, 9, false) }
 func Benchmark_ZFlat10(b *testing.B) { benchFile(b, 10, false) }
 func Benchmark_ZFlat11(b *testing.B) { benchFile(b, 11, false) }
-func Benchmark_ZFlat12(b *testing.B) { benchFile(b, 12, false) }
-func Benchmark_ZFlat13(b *testing.B) { benchFile(b, 13, false) }
-func Benchmark_ZFlat14(b *testing.B) { benchFile(b, 14, false) }
-func Benchmark_ZFlat15(b *testing.B) { benchFile(b, 15, false) }
-func Benchmark_ZFlat16(b *testing.B) { benchFile(b, 16, false) }
-func Benchmark_ZFlat17(b *testing.B) { benchFile(b, 17, false) }
