@@ -58,11 +58,11 @@ func TestSmallCopy(t *testing.T) {
 }
 
 func TestSmallRand(t *testing.T) {
-	rand.Seed(27354294)
+	rng := rand.New(rand.NewSource(27354294))
 	for n := 1; n < 20000; n += 23 {
 		b := make([]byte, n)
 		for i := range b {
-			b[i] = uint8(rand.Uint32())
+			b[i] = uint8(rng.Uint32())
 		}
 		if err := roundtrip(b, nil, nil); err != nil {
 			t.Fatal(err)
@@ -95,25 +95,33 @@ func cmp(a, b []byte) error {
 }
 
 func TestFramingFormat(t *testing.T) {
-	for _, tf := range testFiles {
-		if err := downloadTestdata(tf.filename); err != nil {
-			t.Fatalf("failed to download testdata: %s", err)
+	// src is comprised of alternating 1e5-sized sequences of random
+	// (incompressible) bytes and repeated (compressible) bytes. 1e5 was chosen
+	// because it is larger than maxUncompressedChunkLen (64k).
+	src := make([]byte, 1e6)
+	rng := rand.New(rand.NewSource(1))
+	for i := 0; i < 10; i++ {
+		if i%2 == 0 {
+			for j := 0; j < 1e5; j++ {
+				src[1e5*i+j] = uint8(rng.Intn(256))
+			}
+		} else {
+			for j := 0; j < 1e5; j++ {
+				src[1e5*i+j] = uint8(i)
+			}
 		}
-		src := readFile(t, filepath.Join(*testdata, tf.filename))
-		buf := new(bytes.Buffer)
-		if _, err := NewWriter(buf).Write(src); err != nil {
-			t.Errorf("%s: encoding: %v", tf.filename, err)
-			continue
-		}
-		dst, err := ioutil.ReadAll(NewReader(buf))
-		if err != nil {
-			t.Errorf("%s: decoding: %v", tf.filename, err)
-			continue
-		}
-		if err := cmp(dst, src); err != nil {
-			t.Errorf("%s: %v", tf.filename, err)
-			continue
-		}
+	}
+
+	buf := new(bytes.Buffer)
+	if _, err := NewWriter(buf).Write(src); err != nil {
+		t.Fatalf("Write: encoding: %v", err)
+	}
+	dst, err := ioutil.ReadAll(NewReader(buf))
+	if err != nil {
+		t.Fatalf("ReadAll: decoding: %v", err)
+	}
+	if err := cmp(dst, src); err != nil {
+		t.Fatal(err)
 	}
 }
 
