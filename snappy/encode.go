@@ -177,14 +177,15 @@ func MaxEncodedLen(srcLen int) int {
 // NewWriter returns a new Writer that compresses to w, using the framing
 // format described at
 // https://code.google.com/p/snappy/source/browse/trunk/framing_format.txt
-func NewWriter(w io.Writer) io.Writer {
-	return &writer{
+func NewWriter(w io.Writer) *Writer {
+	return &Writer{
 		w:   w,
 		enc: make([]byte, MaxEncodedLen(maxUncompressedChunkLen)),
 	}
 }
 
-type writer struct {
+// Writer is an io.Writer than can write Snappy-compressed bytes.
+type Writer struct {
 	w           io.Writer
 	err         error
 	enc         []byte
@@ -192,7 +193,16 @@ type writer struct {
 	wroteHeader bool
 }
 
-func (w *writer) Write(p []byte) (n int, errRet error) {
+// Reset discards the writer's state and switches the Snappy writer to write to
+// w. This permits reusing a Writer rather than allocating a new one.
+func (w *Writer) Reset(writer io.Writer) {
+	w.w = writer
+	w.err = nil
+	w.wroteHeader = false
+}
+
+// Write satisfies the io.Writer interface.
+func (w *Writer) Write(p []byte) (n int, errRet error) {
 	if w.err != nil {
 		return 0, w.err
 	}

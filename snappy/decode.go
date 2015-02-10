@@ -131,15 +131,16 @@ func Decode(dst, src []byte) ([]byte, error) {
 // NewReader returns a new Reader that decompresses from r, using the framing
 // format described at
 // https://code.google.com/p/snappy/source/browse/trunk/framing_format.txt
-func NewReader(r io.Reader) io.Reader {
-	return &reader{
+func NewReader(r io.Reader) *Reader {
+	return &Reader{
 		r:       r,
 		decoded: make([]byte, maxUncompressedChunkLen),
 		buf:     make([]byte, MaxEncodedLen(maxUncompressedChunkLen)+checksumSize),
 	}
 }
 
-type reader struct {
+// Reader is an io.Reader than can read Snappy-compressed bytes.
+type Reader struct {
 	r       io.Reader
 	err     error
 	decoded []byte
@@ -149,7 +150,18 @@ type reader struct {
 	readHeader bool
 }
 
-func (r *reader) readFull(p []byte) (ok bool) {
+// Reset discards any buffered data, resets all state, and switches the Snappy
+// reader to read from r. This permits reusing a Reader rather than allocating
+// a new one.
+func (r *Reader) Reset(reader io.Reader) {
+	r.r = reader
+	r.err = nil
+	r.i = 0
+	r.j = 0
+	r.readHeader = false
+}
+
+func (r *Reader) readFull(p []byte) (ok bool) {
 	if _, r.err = io.ReadFull(r.r, p); r.err != nil {
 		if r.err == io.ErrUnexpectedEOF {
 			r.err = ErrCorrupt
@@ -159,7 +171,8 @@ func (r *reader) readFull(p []byte) (ok bool) {
 	return true
 }
 
-func (r *reader) Read(p []byte) (int, error) {
+// Read satisfies the io.Reader interface.
+func (r *Reader) Read(p []byte) (int, error) {
 	if r.err != nil {
 		return 0, r.err
 	}

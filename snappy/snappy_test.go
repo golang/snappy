@@ -79,8 +79,19 @@ func TestSmallRegular(t *testing.T) {
 	}
 }
 
+func cmp(a, b []byte) error {
+	if len(a) != len(b) {
+		return fmt.Errorf("got %d bytes, want %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return fmt.Errorf("byte #%d: got 0x%02x, want 0x%02x", i, a[i], b[i])
+		}
+	}
+	return nil
+}
+
 func TestFramingFormat(t *testing.T) {
-loop:
 	for _, tf := range testFiles {
 		if err := downloadTestdata(tf.filename); err != nil {
 			t.Fatalf("failed to download testdata: %s", err)
@@ -96,17 +107,80 @@ loop:
 			t.Errorf("%s: decoding: %v", tf.filename, err)
 			continue
 		}
-		if !bytes.Equal(dst, src) {
-			if len(dst) != len(src) {
-				t.Errorf("%s: got %d bytes, want %d", tf.filename, len(dst), len(src))
+		if err := cmp(dst, src); err != nil {
+			t.Errorf("%s: %v", tf.filename, err)
+			continue
+		}
+	}
+}
+
+func TestReaderReset(t *testing.T) {
+	gold := bytes.Repeat([]byte("All that is gold does not glitter,\n"), 10000)
+	buf := new(bytes.Buffer)
+	if _, err := NewWriter(buf).Write(gold); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	encoded, invalid, partial := buf.String(), "invalid", "partial"
+	r := NewReader(nil)
+	for i, s := range []string{encoded, invalid, partial, encoded, partial, invalid, encoded, encoded} {
+		if s == partial {
+			r.Reset(strings.NewReader(encoded))
+			if _, err := r.Read(make([]byte, 101)); err != nil {
+				t.Errorf("#%d: %v", i, err)
 				continue
 			}
-			for i := range dst {
-				if dst[i] != src[i] {
-					t.Errorf("%s: byte #%d: got 0x%02x, want 0x%02x", tf.filename, i, dst[i], src[i])
-					continue loop
-				}
+			continue
+		}
+		r.Reset(strings.NewReader(s))
+		got, err := ioutil.ReadAll(r)
+		switch s {
+		case encoded:
+			if err != nil {
+				t.Errorf("#%d: %v", i, err)
+				continue
 			}
+			if err := cmp(got, gold); err != nil {
+				t.Errorf("%#d: %v", i, err)
+				continue
+			}
+		case invalid:
+			if err == nil {
+				t.Errorf("#%d: got nil error, want non-nil", i)
+				continue
+			}
+		}
+	}
+}
+
+func TestWriterReset(t *testing.T) {
+	gold := bytes.Repeat([]byte("Not all those who wander are lost;\n"), 10000)
+	var gots, wants [][]byte
+	const n = 20
+	w, failed := NewWriter(nil), false
+	for i := 0; i <= n; i++ {
+		buf := new(bytes.Buffer)
+		w.Reset(buf)
+		want := gold[:len(gold)*i/n]
+		if _, err := w.Write(want); err != nil {
+			t.Errorf("#%d: Write: %v", i, err)
+			failed = true
+			continue
+		}
+		got, err := ioutil.ReadAll(NewReader(buf))
+		if err != nil {
+			t.Errorf("#%d: ReadAll: %v", i, err)
+			failed = true
+			continue
+		}
+		gots = append(gots, got)
+		wants = append(wants, want)
+	}
+	if failed {
+		return
+	}
+	for i := range gots {
+		if err := cmp(gots[i], wants[i]); err != nil {
+			t.Errorf("#%d: %v", i, err)
 		}
 	}
 }
