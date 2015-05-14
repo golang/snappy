@@ -1,7 +1,7 @@
 This is a Snappy library for the Go programming language.
 
 To download and install from source:
-$ go get code.google.com/p/snappy-go/snappy
+$ go get github.com/google/go-snappy/snappy
 
 Unless otherwise noted, the Snappy-Go source files are distributed
 under the BSD-style license found in the LICENSE file.
