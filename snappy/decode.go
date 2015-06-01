@@ -30,6 +30,9 @@ func decodedLen(src []byte) (blockLen, headerLen int, err error) {
 	if n == 0 {
 		return 0, 0, ErrCorrupt
 	}
+	if n < 0 {
+		return 0, 0, errors.New("snappy: value larger than 64 bits (overflow)")
+	}
 	if uint64(int(v)) != v {
 		return 0, 0, errors.New("snappy: decoded block is too large")
 	}
