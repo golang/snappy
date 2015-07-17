@@ -27,7 +27,7 @@ func DecodedLen(src []byte) (int, error) {
 // that the length header occupied.
 func decodedLen(src []byte) (blockLen, headerLen int, err error) {
 	v, n := binary.Uvarint(src)
-	if n == 0 {
+	if n <= 0 {
 		return 0, 0, ErrCorrupt
 	}
 	if uint64(int(v)) != v {
