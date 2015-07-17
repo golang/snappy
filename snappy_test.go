@@ -24,11 +24,7 @@ var (
 )
 
 func roundtrip(b, ebuf, dbuf []byte) error {
-	e, err := Encode(ebuf, b)
-	if err != nil {
-		return fmt.Errorf("encoding error: %v", err)
-	}
-	d, err := Decode(dbuf, e)
+	d, err := Decode(dbuf, Encode(ebuf, b))
 	if err != nil {
 		return fmt.Errorf("decoding error: %v", err)
 	}
@@ -197,10 +193,7 @@ func TestWriterReset(t *testing.T) {
 }
 
 func benchDecode(b *testing.B, src []byte) {
-	encoded, err := Encode(nil, src)
-	if err != nil {
-		b.Fatal(err)
-	}
+	encoded := Encode(nil, src)
 	// Bandwidth is in amount of uncompressed data.
 	b.SetBytes(int64(len(src)))
 	b.ResetTimer()
