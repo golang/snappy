@@ -222,7 +222,7 @@ func benchEncode(b *testing.B, src []byte) {
 func readFile(b testing.TB, filename string) []byte {
 	src, err := ioutil.ReadFile(filename)
 	if err != nil {
-		b.Fatalf("failed reading %s: %s", filename, err)
+		b.Skipf("skipping benchmark: %v", err)
 	}
 	if len(src) == 0 {
 		b.Fatalf("%s has zero length", filename)
@@ -284,14 +284,14 @@ var testFiles = []struct {
 // The test data files are present at this canonical URL.
 const baseURL = "https://raw.githubusercontent.com/google/snappy/master/testdata/"
 
-func downloadTestdata(basename string) (errRet error) {
+func downloadTestdata(b *testing.B, basename string) (errRet error) {
 	filename := filepath.Join(*testdata, basename)
 	if stat, err := os.Stat(filename); err == nil && stat.Size() != 0 {
 		return nil
 	}
 
 	if !*download {
-		return fmt.Errorf("test data not found; skipping benchmark without the -download flag")
+		b.Skipf("test data not found; skipping benchmark without the -download flag")
 	}
 	// Download the official snappy C++ implementation reference test data
 	// files for benchmarking.
@@ -326,7 +326,7 @@ func downloadTestdata(basename string) (errRet error) {
 }
 
 func benchFile(b *testing.B, n int, decode bool) {
-	if err := downloadTestdata(testFiles[n].filename); err != nil {
+	if err := downloadTestdata(b, testFiles[n].filename); err != nil {
 		b.Fatalf("failed to download testdata: %s", err)
 	}
 	data := readFile(b, filepath.Join(*testdata, testFiles[n].filename))
