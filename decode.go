@@ -56,7 +56,7 @@ func Decode(dst, src []byte) ([]byte, error) {
 			x := uint(src[s] >> 2)
 			switch {
 			case x < 60:
-				s += 1
+				s++
 			case x == 60:
 				s += 2
 				if s > len(src) {
@@ -280,13 +280,11 @@ func (r *Reader) Read(p []byte) (int, error) {
 			// Section 4.5. Reserved unskippable chunks (chunk types 0x02-0x7f).
 			r.err = ErrUnsupported
 			return 0, r.err
-
-		} else {
-			// Section 4.4 Padding (chunk type 0xfe).
-			// Section 4.6. Reserved skippable chunks (chunk types 0x80-0xfd).
-			if !r.readFull(r.buf[:chunkLen]) {
-				return 0, r.err
-			}
+		}
+		// Section 4.4 Padding (chunk type 0xfe).
+		// Section 4.6. Reserved skippable chunks (chunk types 0x80-0xfd).
+		if !r.readFull(r.buf[:chunkLen]) {
+			return 0, r.err
 		}
 	}
 }
