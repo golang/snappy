@@ -176,7 +176,7 @@ func MaxEncodedLen(srcLen int) int {
 
 // NewWriter returns a new Writer that compresses to w, using the framing
 // format described at
-// https://code.google.com/p/snappy/source/browse/trunk/framing_format.txt
+// https://github.com/google/snappy/blob/master/framing_format.txt
 func NewWriter(w io.Writer) *Writer {
 	return &Writer{
 		w:   w,
