@@ -292,6 +292,7 @@ var testFiles = []struct {
 	{"txt4", "plrabn12.txt"},
 	{"pb", "geo.protodata"},
 	{"gaviota", "kppkn.gtb"},
+	{"random", "random"},
 }
 
 // The test data files are present at this canonical URL.
@@ -322,6 +323,18 @@ func downloadTestdata(b *testing.B, basename string) (errRet error) {
 			os.Remove(filename)
 		}
 	}()
+	// Generate random data
+	if basename == "random" {
+		rng := rand.New(rand.NewSource(27354294))
+		for i := 0; i < 1<<20; i++ {
+			_, err := f.Write([]byte{byte(rng.Intn(255))})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	url := baseURL + basename
 	resp, err := http.Get(url)
 	if err != nil {
@@ -363,6 +376,7 @@ func Benchmark_UFlat8(b *testing.B)  { benchFile(b, 8, true) }
 func Benchmark_UFlat9(b *testing.B)  { benchFile(b, 9, true) }
 func Benchmark_UFlat10(b *testing.B) { benchFile(b, 10, true) }
 func Benchmark_UFlat11(b *testing.B) { benchFile(b, 11, true) }
+func Benchmark_UFlat12(b *testing.B) { benchFile(b, 12, true) }
 func Benchmark_ZFlat0(b *testing.B)  { benchFile(b, 0, false) }
 func Benchmark_ZFlat1(b *testing.B)  { benchFile(b, 1, false) }
 func Benchmark_ZFlat2(b *testing.B)  { benchFile(b, 2, false) }
@@ -375,3 +389,19 @@ func Benchmark_ZFlat8(b *testing.B)  { benchFile(b, 8, false) }
 func Benchmark_ZFlat9(b *testing.B)  { benchFile(b, 9, false) }
 func Benchmark_ZFlat10(b *testing.B) { benchFile(b, 10, false) }
 func Benchmark_ZFlat11(b *testing.B) { benchFile(b, 11, false) }
+func Benchmark_ZFlat12(b *testing.B) { benchFile(b, 12, false) }
+
+// Prints compression size and ratio.
+func BenchmarkCompressionSize(b *testing.B) {
+	fmt.Println("\ndata\tinsize\toutsize\treduction")
+	for n := range testFiles {
+		if err := downloadTestdata(b, testFiles[n].filename); err != nil {
+			b.Fatalf("failed to download testdata: %s", err)
+		}
+		src := readFile(b, filepath.Join(*testdata, testFiles[n].filename))
+		dst := make([]byte, MaxEncodedLen(len(src)))
+		dst = Encode(dst, src)
+		fmt.Printf("%s\t%d\t%d\t%.2f%%\n", testFiles[n].label, len(src), len(dst), 100-float64(len(dst))/float64(len(src))*100)
+	}
+	b.Skip("ok")
+}
