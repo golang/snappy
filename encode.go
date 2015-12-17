@@ -232,13 +232,11 @@ func (w *Writer) Write(p []byte) (n int, errRet error) {
 		// Compress the buffer, discarding the result if the improvement
 		// isn't at least 12.5%.
 		chunkBody := w.enc
-		chunkType := uint8(chunkTypeCompressedData)
 		chunkLen := encode(chunkBody[checksumPlusChunkHeaderSize:], uncompressed)
 		if chunkLen >= len(uncompressed) - len(uncompressed)/8 {
 			// Write the uncompressed data
 			chunkLen += 4
-			chunkType = chunkTypeUncompressedData
-			chunkBody[0] = chunkType
+			chunkBody[0] = chunkTypeUncompressedData
 			chunkBody[1] = uint8(chunkLen >> 0)
 			chunkBody[2] = uint8(chunkLen >> 8)
 			chunkBody[3] = uint8(chunkLen >> 16)
@@ -258,7 +256,7 @@ func (w *Writer) Write(p []byte) (n int, errRet error) {
 			// Write the compressed data
 			chunkBody = chunkBody[:chunkLen + checksumPlusChunkHeaderSize]
 			chunkLen += 4
-			chunkBody[0] = chunkType
+			chunkBody[0] = chunkTypeCompressedData
 			chunkBody[1] = uint8(chunkLen >> 0)
 			chunkBody[2] = uint8(chunkLen >> 8)
 			chunkBody[3] = uint8(chunkLen >> 16)
