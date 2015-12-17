@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"github.com/AlasdairF/Pool"
 )
 
 var (
@@ -138,8 +139,8 @@ func Decode(dst, src []byte) ([]byte, error) {
 func NewReader(r io.Reader) *Reader {
 	return &Reader{
 		r:       r,
-		decoded: make([]byte, maxUncompressedChunkLen),
-		buf:     make([]byte, MaxEncodedLen(maxUncompressedChunkLen)+checksumSize),
+		decoded: pool.Get(maxUncompressedChunkLen),
+		buf:     pool.Get(maxEncodedUncompressedChunkLenPlusChecksumSize),
 	}
 }
 
@@ -291,4 +292,10 @@ func (r *Reader) Read(p []byte) (int, error) {
 			return 0, r.err
 		}
 	}
+}
+
+func (r *Reader) Close() error {
+	pool.Return(r.decoded)
+	pool.Return(r.buf)
+	return nil
 }
