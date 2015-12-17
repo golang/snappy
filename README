@@ -1,6 +1,7 @@
 This is an improved version of snappy making use of pooled memory buffers and optimized to perform less writes to the underlying writer.
+$ go get github.com/AlasdairF/snappy
 
-## Original Readme
+---- Original Readme ----
 
 The Snappy compression format in the Go programming language.
 
