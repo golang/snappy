@@ -44,11 +44,15 @@ const (
 const (
 	checksumSize    = 4
 	chunkHeaderSize = 4
+	checksumPlusChunkHeaderSize = 8 // checksumSize + chunkHeaderSize
 	magicChunk      = "\xff\x06\x00\x00" + magicBody
 	magicBody       = "sNaPpY"
 	// https://github.com/google/snappy/blob/master/framing_format.txt says
 	// that "the uncompressed data in a chunk must be no longer than 65536 bytes".
 	maxUncompressedChunkLen = 65536
+	maxEncodedUncompressedChunkLen = 76490 // maxUncompressedChunkLen + (maxUncompressedChunkLen / 6) + 32
+	maxEncodedUncompressedChunkLenPlusChecksumSize = 76494 // maxEncodedUncompressedChunkLen + checksumSize
+	maxEncodedUncompressedChunkLenPlusChecksumPlusHeaderSize = 76498 // maxEncodedUncompressedChunkLen + checksumSize + chunkHeaderSize
 )
 
 const (
