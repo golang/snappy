@@ -294,7 +294,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 	}
 }
 
-func (r *Reader) Close() error
+func (r *Reader) Close() error {
 	pool.Return(r.decoded)
 	pool.Return(r.buf)
 	return nil
