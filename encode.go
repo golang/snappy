@@ -14,7 +14,7 @@ import (
 const maxOffset = 1 << 15
 
 // read-only bytes
-magicChunkBytes := []byte(magicChunk)
+var magicChunkBytes = []byte(magicChunk)
 
 // emitLiteral writes a literal chunk and returns the number of bytes written.
 func emitLiteral(dst, lit []byte) int {
