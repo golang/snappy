@@ -10,15 +10,6 @@ import (
 	"io"
 )
 
-var (
-	// ErrCorrupt reports that the input is invalid.
-	ErrCorrupt = errors.New("snappy: corrupt input")
-	// ErrTooLarge reports that the uncompressed length is too large.
-	ErrTooLarge = errors.New("snappy: decoded block is too large")
-	// ErrUnsupported reports that the input isn't supported.
-	ErrUnsupported = errors.New("snappy: unsupported input")
-)
-
 // DecodedLen returns the length of the decoded block.
 func DecodedLen(src []byte) (int, error) {
 	v, _, err := decodedLen(src)
@@ -138,8 +129,8 @@ func Decode(dst, src []byte) ([]byte, error) {
 func NewReader(r io.Reader) *Reader {
 	return &Reader{
 		r:       r,
-		decoded: make([]byte, maxUncompressedChunkLen),
-		buf:     make([]byte, MaxEncodedLen(maxUncompressedChunkLen)+checksumSize),
+		decoded: pool.Get().([]byte)[:maxUncompressedChunkLen],
+		buf:     pool.Get().([]byte)[:maxEncodedUncompressedChunkLenPlusChecksumSize],
 	}
 }
 
@@ -198,7 +189,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 			r.readHeader = true
 		}
 		chunkLen := int(r.buf[1]) | int(r.buf[2])<<8 | int(r.buf[3])<<16
-		if chunkLen > len(r.buf) {
+		if chunkLen > maxEncodedUncompressedChunkLenPlusChecksumSize {
 			r.err = ErrUnsupported
 			return 0, r.err
 		}
@@ -291,4 +282,14 @@ func (r *Reader) Read(p []byte) (int, error) {
 			return 0, r.err
 		}
 	}
+}
+
+func (r *Reader) Close() error {
+	if r.err == ErrClosed {
+		return nil
+	}
+	pool.Put(r.decoded)
+	pool.Put(r.buf)
+	r.err = ErrClosed
+	return nil
 }
