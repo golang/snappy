@@ -143,7 +143,7 @@ func NewReader(r io.Reader) *Reader {
 	}
 }
 
-// Reader is an io.Reader than can read Snappy-compressed bytes.
+// Reader is an io.Reader that can read Snappy-compressed bytes.
 type Reader struct {
 	r       io.Reader
 	err     error
