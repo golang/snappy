@@ -249,6 +249,10 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 		w.wroteHeader = true
 	}
 	var uncompressed []byte
+	var noBuffer bool
+	if len(p) > maxUncompressedChunkLen {
+		noBuffer = true
+	}
 	for len(p) > 0 {
 		if len(p) > maxUncompressedChunkLen {
 			uncompressed, p = p[:maxUncompressedChunkLen], p[maxUncompressedChunkLen:]
@@ -260,7 +264,7 @@ func (w *Writer) Write(p []byte) (n int, err error) {
 		// This means many small writes will be collected and written together as one single large chunk, while any large writes will be written immediately
 		// This behavior should enhance both speed and compression for small writes without sacrificing speed on large writes
 		l := len(uncompressed)
-		if l > minUncompressedChunkLen {
+		if noBuffer || l > minUncompressedChunkLen {
 			if w.bufCursor > 0 {
 				if err = w.writeChunk(w.buf[0:w.bufCursor]); err != nil { // flush
 					return
