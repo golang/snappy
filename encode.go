@@ -298,9 +298,9 @@ func (w *Writer) writeChunk(uncompressed []byte) error {
 	chunkLen := encode(chunkBody[checksumPlusChunkHeaderSize:], uncompressed)
 	if chunkLen >= len(uncompressed) - len(uncompressed)/8 {
 		// Write the uncompressed data
-		chunkLen += 4
+		chunkLen = 4 + len(uncompressed)
 		chunkBody[0] = chunkTypeUncompressedData
-		chunkBody[1] = uint8(chunkLen >> 0)
+		chunkBody[1] = uint8(chunkLen)
 		chunkBody[2] = uint8(chunkLen >> 8)
 		chunkBody[3] = uint8(chunkLen >> 16)
 		chunkBody[4] = uint8(checksum >> 0)
@@ -320,7 +320,7 @@ func (w *Writer) writeChunk(uncompressed []byte) error {
 		chunkBody = chunkBody[:chunkLen + checksumPlusChunkHeaderSize]
 		chunkLen += 4
 		chunkBody[0] = chunkTypeCompressedData
-		chunkBody[1] = uint8(chunkLen >> 0)
+		chunkBody[1] = uint8(chunkLen)
 		chunkBody[2] = uint8(chunkLen >> 8)
 		chunkBody[3] = uint8(chunkLen >> 16)
 		chunkBody[4] = uint8(checksum >> 0)
