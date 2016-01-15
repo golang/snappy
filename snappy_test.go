@@ -327,7 +327,7 @@ func downloadTestdata(b *testing.B, basename string) (errRet error) {
 	if basename == "random" {
 		rng := rand.New(rand.NewSource(27354294))
 		for i := 0; i < 1<<20; i++ {
-			_, err := f.Write([]byte{byte(rng.Intn(255))})
+			_, err := f.Write([]byte{byte(rng.Intn(256))})
 			if err != nil {
 				return err
 			}
