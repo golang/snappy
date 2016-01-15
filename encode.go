@@ -111,11 +111,6 @@ func Encode(dst, src []byte) []byte {
 		lit int // The start position of any pending literal bytes.
 	)
 
-	// Keep track of consecutive misses for fast skipping
-	// This is intended to roll over after 65535 misses
-	// to avoid getting out of hand.
-	var misses uint16
-
 	for s+3 < len(src) {
 		// Update the hash table.
 		b0, b1, b2, b3 := src[s], src[s+1], src[s+2], src[s+3]
@@ -128,11 +123,10 @@ func Encode(dst, src []byte) []byte {
 		t, *p = *p-1, s+1
 		// If t is invalid or src[s:s+4] differs from src[t:t+4], accumulate a literal byte.
 		if t < 0 || s-t >= maxOffset || b0 != src[t] || b1 != src[t+1] || b2 != src[t+2] || b3 != src[t+3] {
-			s += 1 + int(misses>>5)
-			misses++
+			// Skip bytes if last match was >= 32 bytes in the past.
+			s += 1 + (s-lit)>>5
 			continue
 		}
-		misses = 0
 		// Otherwise, we have a match. First, emit any pending literal bytes.
 		if lit != s {
 			d += emitLiteral(dst[d:], src[lit:s])
