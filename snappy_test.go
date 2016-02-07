@@ -54,7 +54,7 @@ func TestSmallCopy(t *testing.T) {
 }
 
 func TestSmallRand(t *testing.T) {
-	rng := rand.New(rand.NewSource(27354294))
+	rng := rand.New(rand.NewSource(1))
 	for n := 1; n < 20000; n += 23 {
 		b := make([]byte, n)
 		for i := range b {
