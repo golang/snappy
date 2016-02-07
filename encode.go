@@ -7,6 +7,7 @@ package snappy
 import (
 	"encoding/binary"
 	"io"
+	"sync"
 )
 
 // We limit how far copy back-references can go, the same as the C++ code.
@@ -75,11 +76,28 @@ func emitCopy(dst []byte, offset, length int) int {
 	return i
 }
 
+var encPool = sync.Pool{New: func() interface{} { return new(encoder) }}
+
 // Encode returns the encoded form of src. The returned slice may be a sub-
 // slice of dst if dst was large enough to hold the entire encoded block.
 // Otherwise, a newly allocated slice will be returned.
 // It is valid to pass a nil dst.
 func Encode(dst, src []byte) []byte {
+	var e = encPool.Get().(*encoder)
+	dst = e.Encode(dst, src)
+	encPool.Put(e)
+	return dst
+}
+
+const tableBits = 14             // Bits used in the table
+const tableSize = 1 << tableBits // Size of the table
+
+type encoder struct {
+	table [tableSize]int32
+	cur   int
+}
+
+func (e *encoder) Encode(dst, src []byte) []byte {
 	if n := MaxEncodedLen(len(src)); len(dst) < n {
 		dst = make([]byte, n)
 	}
@@ -92,34 +110,33 @@ func Encode(dst, src []byte) []byte {
 		if len(src) != 0 {
 			d += emitLiteral(dst[d:], src)
 		}
+		e.cur += 4
 		return dst[:d]
 	}
 
-	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
-	const maxTableSize = 1 << 14
-	shift, tableSize := uint(32-8), 1<<8
-	for tableSize < maxTableSize && tableSize < len(src) {
-		shift--
-		tableSize *= 2
+	// Ensure that e.cur doesn't wrap.
+	if e.cur > 1<<30 {
+		e.cur = 0
 	}
-	var table [maxTableSize]int
 
 	// Iterate over the source bytes.
 	var (
-		s   int // The iterator position.
-		t   int // The last position with the same hash as s.
-		lit int // The start position of any pending literal bytes.
+		s    int          // The iterator position.
+		t    int          // The last position with the same hash as s.
+		lit  int          // The start position of any pending literal bytes.
+		tadd = -1 - e.cur // Added to t to adjust match to offset
+		sadd = 1 + e.cur  // Added to s to adjust match to offset
 	)
 	for s+3 < len(src) {
 		// Update the hash table.
 		b0, b1, b2, b3 := src[s], src[s+1], src[s+2], src[s+3]
 		h := uint32(b0) | uint32(b1)<<8 | uint32(b2)<<16 | uint32(b3)<<24
-		p := &table[(h*0x1e35a7bd)>>shift]
+		p := &e.table[(h*0x1e35a7bd)>>(32-tableBits)]
 		// We need to to store values in [-1, inf) in table. To save
 		// some initialization time, (re)use the table's zero value
 		// and shift the values against this zero: add 1 on writes,
 		// subtract 1 on reads.
-		t, *p = *p-1, s+1
+		t, *p = int(*p)+tadd, int32(s+sadd)
 		// If t is invalid or src[s:s+4] differs from src[t:t+4], accumulate a literal byte.
 		if t < 0 || s-t >= maxOffset || b0 != src[t] || b1 != src[t+1] || b2 != src[t+2] || b3 != src[t+3] {
 			s++
@@ -145,6 +162,8 @@ func Encode(dst, src []byte) []byte {
 	if lit != len(src) {
 		d += emitLiteral(dst[d:], src[lit:])
 	}
+
+	e.cur += len(src)
 	return dst[:d]
 }
 
@@ -180,6 +199,7 @@ func MaxEncodedLen(srcLen int) int {
 func NewWriter(w io.Writer) *Writer {
 	return &Writer{
 		w:   w,
+		e:   encPool.Get().(*encoder),
 		enc: make([]byte, MaxEncodedLen(maxUncompressedChunkLen)),
 	}
 }
@@ -187,6 +207,7 @@ func NewWriter(w io.Writer) *Writer {
 // Writer is an io.Writer than can write Snappy-compressed bytes.
 type Writer struct {
 	w           io.Writer
+	e           *encoder
 	err         error
 	enc         []byte
 	buf         [checksumSize + chunkHeaderSize]byte
@@ -226,7 +247,7 @@ func (w *Writer) Write(p []byte) (n int, errRet error) {
 		// Compress the buffer, discarding the result if the improvement
 		// isn't at least 12.5%.
 		chunkType := uint8(chunkTypeCompressedData)
-		chunkBody := Encode(w.enc, uncompressed)
+		chunkBody := w.e.Encode(w.enc, uncompressed)
 		if len(chunkBody) >= len(uncompressed)-len(uncompressed)/8 {
 			chunkType, chunkBody = chunkTypeUncompressedData, uncompressed
 		}
