@@ -273,6 +273,15 @@ func BenchmarkWordsEncode1e4(b *testing.B) { benchWords(b, 1e4, false) }
 func BenchmarkWordsEncode1e5(b *testing.B) { benchWords(b, 1e5, false) }
 func BenchmarkWordsEncode1e6(b *testing.B) { benchWords(b, 1e6, false) }
 
+func BenchmarkRandomEncode(b *testing.B) {
+	rng := rand.New(rand.NewSource(1))
+	data := make([]byte, 1<<20)
+	for i := range data {
+		data[i] = uint8(rng.Intn(256))
+	}
+	benchEncode(b, data)
+}
+
 // testFiles' values are copied directly from
 // https://raw.githubusercontent.com/google/snappy/master/snappy_unittest.cc
 // The label field is unused in snappy-go.
