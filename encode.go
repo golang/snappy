@@ -138,7 +138,7 @@ func (e *encoder) encode(dst, src []byte) []byte {
 		// subtract 1 on reads.
 		t, *p = int(*p)+tadd, int32(s+sadd)
 		// If t is invalid or src[s:s+4] differs from src[t:t+4], accumulate a literal byte.
-		if t < 0 || s-t >= maxOffset || b0 != src[t] || b1 != src[t+1] || b2 != src[t+2] || b3 != src[t+3] {
+		if t < 0 || uint(s-t) >= maxOffset || b0 != src[t] || b1 != src[t+1] || b2 != src[t+2] || b3 != src[t+3] {
 			s++
 			continue
 		}
