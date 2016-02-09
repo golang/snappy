@@ -323,7 +323,8 @@ func downloadTestdata(b *testing.B, basename string) (errRet error) {
 			os.Remove(filename)
 		}
 	}()
-	// Generate random data
+
+	// Generate random data for Random benchmark
 	if basename == "random" {
 		rng := rand.New(rand.NewSource(27354294))
 		for i := 0; i < 1<<20; i++ {
@@ -376,7 +377,6 @@ func Benchmark_UFlat8(b *testing.B)  { benchFile(b, 8, true) }
 func Benchmark_UFlat9(b *testing.B)  { benchFile(b, 9, true) }
 func Benchmark_UFlat10(b *testing.B) { benchFile(b, 10, true) }
 func Benchmark_UFlat11(b *testing.B) { benchFile(b, 11, true) }
-func Benchmark_UFlat12(b *testing.B) { benchFile(b, 12, true) }
 func Benchmark_ZFlat0(b *testing.B)  { benchFile(b, 0, false) }
 func Benchmark_ZFlat1(b *testing.B)  { benchFile(b, 1, false) }
 func Benchmark_ZFlat2(b *testing.B)  { benchFile(b, 2, false) }
@@ -389,7 +389,9 @@ func Benchmark_ZFlat8(b *testing.B)  { benchFile(b, 8, false) }
 func Benchmark_ZFlat9(b *testing.B)  { benchFile(b, 9, false) }
 func Benchmark_ZFlat10(b *testing.B) { benchFile(b, 10, false) }
 func Benchmark_ZFlat11(b *testing.B) { benchFile(b, 11, false) }
-func Benchmark_ZFlat12(b *testing.B) { benchFile(b, 12, false) }
+
+func BenchmarkDecodeRandom(b *testing.B) { benchFile(b, 12, true) }
+func BenchmarkEncodeRandom(b *testing.B) { benchFile(b, 12, false) }
 
 // Prints compression size and ratio.
 func BenchmarkCompressionSize(b *testing.B) {
