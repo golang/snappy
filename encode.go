@@ -83,8 +83,8 @@ var encPool = sync.Pool{New: func() interface{} { return new(encoder) }}
 // Otherwise, a newly allocated slice will be returned.
 // It is valid to pass a nil dst.
 func Encode(dst, src []byte) []byte {
-	var e = encPool.Get().(*encoder)
-	dst = e.Encode(dst, src)
+	e := encPool.Get().(*encoder)
+	dst = e.encode(dst, src)
 	encPool.Put(e)
 	return dst
 }
@@ -97,7 +97,7 @@ type encoder struct {
 	cur   int
 }
 
-func (e *encoder) Encode(dst, src []byte) []byte {
+func (e *encoder) encode(dst, src []byte) []byte {
 	if n := MaxEncodedLen(len(src)); len(dst) < n {
 		dst = make([]byte, n)
 	}
@@ -247,7 +247,7 @@ func (w *Writer) Write(p []byte) (n int, errRet error) {
 		// Compress the buffer, discarding the result if the improvement
 		// isn't at least 12.5%.
 		chunkType := uint8(chunkTypeCompressedData)
-		chunkBody := w.e.Encode(w.enc, uncompressed)
+		chunkBody := w.e.encode(w.enc, uncompressed)
 		if len(chunkBody) >= len(uncompressed)-len(uncompressed)/8 {
 			chunkType, chunkBody = chunkTypeUncompressedData, uncompressed
 		}
