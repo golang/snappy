@@ -122,7 +122,8 @@ func Encode(dst, src []byte) []byte {
 		t, *p = *p-1, s+1
 		// If t is invalid or src[s:s+4] differs from src[t:t+4], accumulate a literal byte.
 		if t < 0 || s-t >= maxOffset || b0 != src[t] || b1 != src[t+1] || b2 != src[t+2] || b3 != src[t+3] {
-			s++
+			// Skip multiple bytes if the last match was >= 32 bytes prior.
+			s += 1 + (s-lit)>>5
 			continue
 		}
 		// Otherwise, we have a match. First, emit any pending literal bytes.
