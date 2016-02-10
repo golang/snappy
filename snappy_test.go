@@ -264,10 +264,14 @@ func benchWords(b *testing.B, n int, decode bool) {
 	}
 }
 
+func BenchmarkWordsDecode1e1(b *testing.B) { benchWords(b, 1e1, true) }
+func BenchmarkWordsDecode1e2(b *testing.B) { benchWords(b, 1e2, true) }
 func BenchmarkWordsDecode1e3(b *testing.B) { benchWords(b, 1e3, true) }
 func BenchmarkWordsDecode1e4(b *testing.B) { benchWords(b, 1e4, true) }
 func BenchmarkWordsDecode1e5(b *testing.B) { benchWords(b, 1e5, true) }
 func BenchmarkWordsDecode1e6(b *testing.B) { benchWords(b, 1e6, true) }
+func BenchmarkWordsEncode1e1(b *testing.B) { benchWords(b, 1e1, false) }
+func BenchmarkWordsEncode1e2(b *testing.B) { benchWords(b, 1e2, false) }
 func BenchmarkWordsEncode1e3(b *testing.B) { benchWords(b, 1e3, false) }
 func BenchmarkWordsEncode1e4(b *testing.B) { benchWords(b, 1e4, false) }
 func BenchmarkWordsEncode1e5(b *testing.B) { benchWords(b, 1e5, false) }
