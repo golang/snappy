@@ -286,21 +286,22 @@ func BenchmarkRandomEncode(b *testing.B) {
 // https://raw.githubusercontent.com/google/snappy/master/snappy_unittest.cc
 // The label field is unused in snappy-go.
 var testFiles = []struct {
-	label    string
-	filename string
+	label     string
+	filename  string
+	sizeLimit int
 }{
-	{"html", "html"},
-	{"urls", "urls.10K"},
-	{"jpg", "fireworks.jpeg"},
-	{"jpg_200", "fireworks.jpeg"},
-	{"pdf", "paper-100k.pdf"},
-	{"html4", "html_x_4"},
-	{"txt1", "alice29.txt"},
-	{"txt2", "asyoulik.txt"},
-	{"txt3", "lcet10.txt"},
-	{"txt4", "plrabn12.txt"},
-	{"pb", "geo.protodata"},
-	{"gaviota", "kppkn.gtb"},
+	{"html", "html", 0},
+	{"urls", "urls.10K", 0},
+	{"jpg", "fireworks.jpeg", 0},
+	{"jpg_200", "fireworks.jpeg", 200},
+	{"pdf", "paper-100k.pdf", 0},
+	{"html4", "html_x_4", 0},
+	{"txt1", "alice29.txt", 0},
+	{"txt2", "asyoulik.txt", 0},
+	{"txt3", "lcet10.txt", 0},
+	{"txt4", "plrabn12.txt", 0},
+	{"pb", "geo.protodata", 0},
+	{"gaviota", "kppkn.gtb", 0},
 }
 
 // The test data files are present at this canonical URL.
@@ -352,6 +353,9 @@ func benchFile(b *testing.B, n int, decode bool) {
 		b.Fatalf("failed to download testdata: %s", err)
 	}
 	data := readFile(b, filepath.Join(*testdata, testFiles[n].filename))
+	if n := testFiles[n].sizeLimit; 0 < n && n < len(data) {
+		data = data[:n]
+	}
 	if decode {
 		benchDecode(b, data)
 	} else {
