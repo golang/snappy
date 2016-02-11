@@ -190,7 +190,7 @@ var errClosed = errors.New("snappy: Writer is closed")
 func NewWriter(w io.Writer) *Writer {
 	return &Writer{
 		w:    w,
-		obuf: make([]byte, MaxEncodedLen(maxUncompressedChunkLen)),
+		obuf: make([]byte, obufLen),
 	}
 }
 
@@ -205,7 +205,7 @@ func NewBufferedWriter(w io.Writer) *Writer {
 	return &Writer{
 		w:    w,
 		ibuf: make([]byte, 0, maxUncompressedChunkLen),
-		obuf: make([]byte, MaxEncodedLen(maxUncompressedChunkLen)),
+		obuf: make([]byte, obufLen),
 	}
 }
 
@@ -223,11 +223,6 @@ type Writer struct {
 
 	// obuf is a buffer for the outgoing (compressed) bytes.
 	obuf []byte
-
-	// chunkHeaderBuf is a buffer for the per-chunk header (chunk type, length
-	// and checksum), not to be confused with the magic string that forms the
-	// stream header.
-	chunkHeaderBuf [checksumSize + chunkHeaderSize]byte
 
 	// wroteStreamHeader is whether we have written the stream header.
 	wroteStreamHeader bool
@@ -284,17 +279,14 @@ func (w *Writer) write(p []byte) (nRet int, errRet error) {
 	if w.err != nil {
 		return 0, w.err
 	}
-	if !w.wroteStreamHeader {
-		if copy(w.obuf, magicChunk) != len(magicChunk) {
-			panic("unreachable")
-		}
-		if _, err := w.w.Write(w.obuf[:len(magicChunk)]); err != nil {
-			w.err = err
-			return nRet, err
-		}
-		w.wroteStreamHeader = true
-	}
 	for len(p) > 0 {
+		obufStart := len(magicChunk)
+		if !w.wroteStreamHeader {
+			w.wroteStreamHeader = true
+			copy(w.obuf, magicChunk)
+			obufStart = 0
+		}
+
 		var uncompressed []byte
 		if len(p) > maxUncompressedChunkLen {
 			uncompressed, p = p[:maxUncompressedChunkLen], p[maxUncompressedChunkLen:]
@@ -305,28 +297,35 @@ func (w *Writer) write(p []byte) (nRet int, errRet error) {
 
 		// Compress the buffer, discarding the result if the improvement
 		// isn't at least 12.5%.
+		compressed := Encode(w.obuf[obufHeaderLen:], uncompressed)
 		chunkType := uint8(chunkTypeCompressedData)
-		chunkBody := Encode(w.obuf, uncompressed)
-		if len(chunkBody) >= len(uncompressed)-len(uncompressed)/8 {
-			chunkType, chunkBody = chunkTypeUncompressedData, uncompressed
+		chunkLen := 4 + len(compressed)
+		obufEnd := obufHeaderLen + len(compressed)
+		if len(compressed) >= len(uncompressed)-len(uncompressed)/8 {
+			chunkType = chunkTypeUncompressedData
+			chunkLen = 4 + len(uncompressed)
+			obufEnd = obufHeaderLen
 		}
 
-		chunkLen := 4 + len(chunkBody)
-		w.chunkHeaderBuf[0] = chunkType
-		w.chunkHeaderBuf[1] = uint8(chunkLen >> 0)
-		w.chunkHeaderBuf[2] = uint8(chunkLen >> 8)
-		w.chunkHeaderBuf[3] = uint8(chunkLen >> 16)
-		w.chunkHeaderBuf[4] = uint8(checksum >> 0)
-		w.chunkHeaderBuf[5] = uint8(checksum >> 8)
-		w.chunkHeaderBuf[6] = uint8(checksum >> 16)
-		w.chunkHeaderBuf[7] = uint8(checksum >> 24)
-		if _, err := w.w.Write(w.chunkHeaderBuf[:]); err != nil {
+		// Fill in the per-chunk header that comes before the body.
+		w.obuf[len(magicChunk)+0] = chunkType
+		w.obuf[len(magicChunk)+1] = uint8(chunkLen >> 0)
+		w.obuf[len(magicChunk)+2] = uint8(chunkLen >> 8)
+		w.obuf[len(magicChunk)+3] = uint8(chunkLen >> 16)
+		w.obuf[len(magicChunk)+4] = uint8(checksum >> 0)
+		w.obuf[len(magicChunk)+5] = uint8(checksum >> 8)
+		w.obuf[len(magicChunk)+6] = uint8(checksum >> 16)
+		w.obuf[len(magicChunk)+7] = uint8(checksum >> 24)
+
+		if _, err := w.w.Write(w.obuf[obufStart:obufEnd]); err != nil {
 			w.err = err
 			return nRet, err
 		}
-		if _, err := w.w.Write(chunkBody); err != nil {
-			w.err = err
-			return nRet, err
+		if chunkType == chunkTypeUncompressedData {
+			if _, err := w.w.Write(uncompressed); err != nil {
+				w.err = err
+				return nRet, err
+			}
 		}
 		nRet += len(uncompressed)
 	}

@@ -23,6 +23,14 @@ var (
 	testdata = flag.String("testdata", "testdata", "Directory containing the test data")
 )
 
+func TestMaxEncodedLenOfMaxUncompressedChunkLen(t *testing.T) {
+	got := maxEncodedLenOfMaxUncompressedChunkLen
+	want := MaxEncodedLen(maxUncompressedChunkLen)
+	if got != want {
+		t.Fatalf("got %d, want %d", got, want)
+	}
+}
+
 func roundtrip(b, ebuf, dbuf []byte) error {
 	d, err := Decode(dbuf, Encode(ebuf, b))
 	if err != nil {
@@ -138,6 +146,32 @@ func TestFramingFormat(t *testing.T) {
 	}
 	if err := cmp(dst, src); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWriterGoldenOutput(t *testing.T) {
+	buf := new(bytes.Buffer)
+	w := NewBufferedWriter(buf)
+	defer w.Close()
+	w.Write([]byte("abcd")) // Not compressible.
+	w.Flush()
+	w.Write(bytes.Repeat([]byte{'A'}, 100)) // Compressible.
+	w.Flush()
+	got := buf.String()
+	want := strings.Join([]string{
+		magicChunk,
+		"\x01\x08\x00\x00", // Uncompressed chunk, 8 bytes long (including 4 byte checksum).
+		"\x68\x10\xe6\xb6", // Checksum.
+		"\x61\x62\x63\x64", // Uncompressed payload: "abcd".
+		"\x00\x0d\x00\x00", // Compressed chunk, 13 bytes long (including 4 byte checksum).
+		"\x37\xcb\xbc\x9d", // Checksum.
+		"\x64",             // Compressed payload: Uncompressed length (varint encoded): 100.
+		"\x00\x41",         // Compressed payload: tagLiteral, length=1, "A".
+		"\xfe\x01\x00",     // Compressed payload: tagCopy2,   length=64, offset=1.
+		"\x8a\x01\x00",     // Compressed payload: tagCopy2,   length=35, offset=1.
+	}, "")
+	if got != want {
+		t.Fatalf("\ngot:  % x\nwant: % x", got, want)
 	}
 }
 
@@ -311,6 +345,46 @@ func TestWriterResetWithoutFlush(t *testing.T) {
 	}
 	if err := cmp(got, []byte("yyy")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+type writeCounter int
+
+func (c *writeCounter) Write(p []byte) (int, error) {
+	*c++
+	return len(p), nil
+}
+
+// TestNumUnderlyingWrites tests that each Writer flush only makes one or two
+// Write calls on its underlying io.Writer, depending on whether or not the
+// flushed buffer was compressible.
+func TestNumUnderlyingWrites(t *testing.T) {
+	testCases := []struct {
+		input []byte
+		want  int
+	}{
+		{bytes.Repeat([]byte{'x'}, 100), 1},
+		{bytes.Repeat([]byte{'y'}, 100), 1},
+		{[]byte("ABCDEFGHIJKLMNOPQRST"), 2},
+	}
+
+	var c writeCounter
+	w := NewBufferedWriter(&c)
+	defer w.Close()
+	for i, tc := range testCases {
+		c = 0
+		if _, err := w.Write(tc.input); err != nil {
+			t.Errorf("#%d: Write: %v", i, err)
+			continue
+		}
+		if err := w.Flush(); err != nil {
+			t.Errorf("#%d: Flush: %v", i, err)
+			continue
+		}
+		if int(c) != tc.want {
+			t.Errorf("#%d: got %d underlying writes, want %d", i, c, tc.want)
+			continue
+		}
 	}
 }
 
