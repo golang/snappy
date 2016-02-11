@@ -6,10 +6,23 @@
 // It aims for very high speeds and reasonable compression.
 //
 // The C++ snappy implementation is at https://github.com/google/snappy
-package snappy // import "github.com/golang/snappy"
+package snappy
 
 import (
 	"hash/crc32"
+	"sync"
+	"errors"
+)
+
+var (
+	// ErrCorrupt reports that the input is invalid.
+	ErrCorrupt = errors.New("snappy: corrupt input")
+	// ErrTooLarge reports that the uncompressed length is too large.
+	ErrTooLarge = errors.New("snappy: decoded block is too large")
+	// ErrUnsupported reports that the input isn't supported.
+	ErrUnsupported = errors.New("snappy: unsupported input")
+	// ErrClosed is returned if Read or Write is attempted after Close
+	ErrClosed = errors.New("snappy: already closed")
 )
 
 /*
@@ -34,6 +47,7 @@ Lempel-Ziv compression algorithms. In particular:
     denoted by the next 2 bytes.
   - For l == 3, this tag is a legacy format that is no longer supported.
 */
+
 const (
 	tagLiteral = 0x00
 	tagCopy1   = 0x01
@@ -44,11 +58,17 @@ const (
 const (
 	checksumSize    = 4
 	chunkHeaderSize = 4
+	checksumPlusChunkHeaderSize = checksumSize + chunkHeaderSize
 	magicChunk      = "\xff\x06\x00\x00" + magicBody
 	magicBody       = "sNaPpY"
 	// https://github.com/google/snappy/blob/master/framing_format.txt says
 	// that "the uncompressed data in a chunk must be no longer than 65536 bytes".
 	maxUncompressedChunkLen = 65536
+	minUncompressedChunkLen = 32768 // writes under this length will be buffered
+	maxEncodedUncompressedChunkLen = 76490 // maxUncompressedChunkLen + (maxUncompressedChunkLen / 6) + 32
+	maxEncodedUncompressedChunkLenPlusChecksumSize = maxEncodedUncompressedChunkLen + checksumSize
+	maxEncodedUncompressedChunkLenPlusChecksumPlusHeaderSize = maxEncodedUncompressedChunkLen + checksumSize + chunkHeaderSize
+	maxBufSize = maxEncodedUncompressedChunkLenPlusChecksumPlusHeaderSize
 )
 
 const (
@@ -57,6 +77,13 @@ const (
 	chunkTypePadding          = 0xfe
 	chunkTypeStreamIdentifier = 0xff
 )
+
+// buffers for reading and writing are recycled using sync.Pool
+var pool = sync.Pool{
+    New: func() interface{} {
+        return make([]byte, maxBufSize)
+    },
+}
 
 var crcTable = crc32.MakeTable(crc32.Castagnoli)
 

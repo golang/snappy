@@ -12,6 +12,9 @@ import (
 // We limit how far copy back-references can go, the same as the C++ code.
 const maxOffset = 1 << 15
 
+// read-only bytes
+var magicChunkBytes = []byte(magicChunk)
+
 // emitLiteral writes a literal chunk and returns the number of bytes written.
 func emitLiteral(dst, lit []byte) int {
 	i, n := 0, uint(len(lit)-1)
@@ -83,22 +86,27 @@ func Encode(dst, src []byte) []byte {
 	if n := MaxEncodedLen(len(src)); len(dst) < n {
 		dst = make([]byte, n)
 	}
+	d := encode(dst, src)
+	return dst[:d]
+}
 
+func encode(dst, src []byte) (d int) {
 	// The block starts with the varint-encoded length of the decompressed bytes.
-	d := binary.PutUvarint(dst, uint64(len(src)))
+	l := len(src)
+	d = binary.PutUvarint(dst, uint64(l))
 
 	// Return early if src is short.
-	if len(src) <= 4 {
-		if len(src) != 0 {
+	if l <= 4 {
+		if l != 0 {
 			d += emitLiteral(dst[d:], src)
 		}
-		return dst[:d]
+		return
 	}
 
 	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
 	const maxTableSize = 1 << 14
 	shift, tableSize := uint(32-8), 1<<8
-	for tableSize < maxTableSize && tableSize < len(src) {
+	for tableSize < maxTableSize && tableSize < l {
 		shift--
 		tableSize *= 2
 	}
@@ -110,7 +118,7 @@ func Encode(dst, src []byte) []byte {
 		t   int // The last position with the same hash as s.
 		lit int // The start position of any pending literal bytes.
 	)
-	for s+3 < len(src) {
+	for s+3 < l {
 		// Update the hash table.
 		b0, b1, b2, b3 := src[s], src[s+1], src[s+2], src[s+3]
 		h := uint32(b0) | uint32(b1)<<8 | uint32(b2)<<16 | uint32(b3)<<24
@@ -133,7 +141,7 @@ func Encode(dst, src []byte) []byte {
 		// Extend the match to be as long as possible.
 		s0 := s
 		s, t = s+4, t+4
-		for s < len(src) && src[s] == src[t] {
+		for s < l && src[s] == src[t] {
 			s++
 			t++
 		}
@@ -143,10 +151,10 @@ func Encode(dst, src []byte) []byte {
 	}
 
 	// Emit any final pending literal bytes and return.
-	if lit != len(src) {
+	if lit != l {
 		d += emitLiteral(dst[d:], src[lit:])
 	}
-	return dst[:d]
+	return
 }
 
 // MaxEncodedLen returns the maximum length of a snappy block, given its
@@ -181,8 +189,33 @@ func MaxEncodedLen(srcLen int) int {
 func NewWriter(w io.Writer) *Writer {
 	return &Writer{
 		w:   w,
-		enc: make([]byte, MaxEncodedLen(maxUncompressedChunkLen)),
+		enc: pool.Get().([]byte)[:maxEncodedUncompressedChunkLenPlusChecksumPlusHeaderSize],
+		buf: pool.Get().([]byte)[:maxUncompressedChunkLen],
 	}
+}
+
+func WriteOnce(writer io.Writer, p []byte) (n int, err error) {
+	if _, err = writer.Write(magicChunkBytes); err != nil {
+		return
+	}
+	w := &Writer{
+		w:   writer,
+		enc: pool.Get().([]byte)[:maxEncodedUncompressedChunkLenPlusChecksumPlusHeaderSize],
+	}
+	defer pool.Put(w.enc)
+	var uncompressed []byte
+	for len(p) > 0 {
+		if len(p) > maxUncompressedChunkLen {
+			uncompressed, p = p[:maxUncompressedChunkLen], p[maxUncompressedChunkLen:]
+		} else {
+			uncompressed, p = p, nil
+		}
+		if err = w.writeChunk(uncompressed); err != nil {
+			return
+		}
+		n += len(uncompressed)
+	}
+	return
 }
 
 // Writer is an io.Writer than can write Snappy-compressed bytes.
@@ -190,7 +223,8 @@ type Writer struct {
 	w           io.Writer
 	err         error
 	enc         []byte
-	buf         [checksumSize + chunkHeaderSize]byte
+	buf			[]byte
+	bufCursor	int
 	wroteHeader bool
 }
 
@@ -199,57 +233,133 @@ type Writer struct {
 func (w *Writer) Reset(writer io.Writer) {
 	w.w = writer
 	w.err = nil
+	w.bufCursor = 0
 	w.wroteHeader = false
 }
 
 // Write satisfies the io.Writer interface.
-func (w *Writer) Write(p []byte) (n int, errRet error) {
+func (w *Writer) Write(p []byte) (n int, err error) {
 	if w.err != nil {
 		return 0, w.err
 	}
 	if !w.wroteHeader {
-		copy(w.enc, magicChunk)
-		if _, err := w.w.Write(w.enc[:len(magicChunk)]); err != nil {
+		if _, err = w.w.Write(magicChunkBytes); err != nil {
 			w.err = err
-			return n, err
+			return
 		}
 		w.wroteHeader = true
 	}
+	var uncompressed []byte
+	var noBuffer bool
+	if len(p) > maxUncompressedChunkLen {
+		noBuffer = true
+	}
 	for len(p) > 0 {
-		var uncompressed []byte
 		if len(p) > maxUncompressedChunkLen {
 			uncompressed, p = p[:maxUncompressedChunkLen], p[maxUncompressedChunkLen:]
 		} else {
 			uncompressed, p = p, nil
 		}
-		checksum := crc(uncompressed)
-
-		// Compress the buffer, discarding the result if the improvement
-		// isn't at least 12.5%.
-		chunkType := uint8(chunkTypeCompressedData)
-		chunkBody := Encode(w.enc, uncompressed)
-		if len(chunkBody) >= len(uncompressed)-len(uncompressed)/8 {
-			chunkType, chunkBody = chunkTypeUncompressedData, uncompressed
+		
+		// Writes with length under minUncompressedChunkLen will be copied to the buffer, over this length will be written directly as one chunk without buffering
+		// This means many small writes will be collected and written together as one single large chunk, while any large writes will be written immediately
+		// This behavior should enhance both speed and compression for small writes without sacrificing speed on large writes
+		l := len(uncompressed)
+		if noBuffer || l > minUncompressedChunkLen {
+			if w.bufCursor > 0 {
+				if err = w.writeChunk(w.buf[0:w.bufCursor]); err != nil { // flush
+					return
+				}
+				w.bufCursor = 0
+			}
+			if err = w.writeChunk(uncompressed); err != nil {
+				return
+			}
+		} else {
+			if l + w.bufCursor > maxUncompressedChunkLen {
+				if err = w.writeChunk(w.buf[0:w.bufCursor]); err != nil { // flush
+					return
+				}
+				w.bufCursor = 0
+			}
+			copy(w.buf[w.bufCursor:], uncompressed)
+			w.bufCursor += l
 		}
+		
+		n += l
+	}
+	return
+}
 
-		chunkLen := 4 + len(chunkBody)
-		w.buf[0] = chunkType
-		w.buf[1] = uint8(chunkLen >> 0)
-		w.buf[2] = uint8(chunkLen >> 8)
-		w.buf[3] = uint8(chunkLen >> 16)
-		w.buf[4] = uint8(checksum >> 0)
-		w.buf[5] = uint8(checksum >> 8)
-		w.buf[6] = uint8(checksum >> 16)
-		w.buf[7] = uint8(checksum >> 24)
-		if _, err := w.w.Write(w.buf[:]); err != nil {
+func (w *Writer) writeChunk(uncompressed []byte) error {
+	checksum := crc(uncompressed)
+	// Compress the buffer, discarding the result if the improvement
+	// isn't at least 12.5%.
+	chunkBody := w.enc
+	chunkLen := encode(chunkBody[checksumPlusChunkHeaderSize:], uncompressed)
+	if chunkLen >= len(uncompressed) - len(uncompressed)/8 {
+		// Write the uncompressed data
+		chunkLen = 4 + len(uncompressed)
+		chunkBody[0] = chunkTypeUncompressedData
+		chunkBody[1] = uint8(chunkLen)
+		chunkBody[2] = uint8(chunkLen >> 8)
+		chunkBody[3] = uint8(chunkLen >> 16)
+		chunkBody[4] = uint8(checksum >> 0)
+		chunkBody[5] = uint8(checksum >> 8)
+		chunkBody[6] = uint8(checksum >> 16)
+		chunkBody[7] = uint8(checksum >> 24)
+		if _, err := w.w.Write(chunkBody[:8]); err != nil {
 			w.err = err
-			return n, err
+			return err
 		}
+		if _, err := w.w.Write(uncompressed); err != nil {
+			w.err = err
+			return err
+		}
+	} else {
+		// Write the compressed data
+		chunkBody = chunkBody[:chunkLen + checksumPlusChunkHeaderSize]
+		chunkLen += 4
+		chunkBody[0] = chunkTypeCompressedData
+		chunkBody[1] = uint8(chunkLen)
+		chunkBody[2] = uint8(chunkLen >> 8)
+		chunkBody[3] = uint8(chunkLen >> 16)
+		chunkBody[4] = uint8(checksum >> 0)
+		chunkBody[5] = uint8(checksum >> 8)
+		chunkBody[6] = uint8(checksum >> 16)
+		chunkBody[7] = uint8(checksum >> 24)
 		if _, err := w.w.Write(chunkBody); err != nil {
 			w.err = err
-			return n, err
+			return err
 		}
-		n += len(uncompressed)
 	}
-	return n, nil
+	return nil
+}
+
+func (w *Writer) Flush() error {
+	if w.err != nil {
+		return w.err
+	}
+	if w.bufCursor > 0 {
+		w.err = w.writeChunk(w.buf[0:w.bufCursor])
+		w.bufCursor = 0
+		return w.err
+	}
+	return nil
+}
+
+func (w *Writer) Close() error {
+	if w.err == ErrClosed {
+		return nil
+	}
+	if w.bufCursor > 0 {
+		if err := w.writeChunk(w.buf[0:w.bufCursor]); err != nil {
+			w.err = err
+			return err
+		}
+	}
+	pool.Put(w.enc)
+	pool.Put(w.buf)
+	w.err = ErrClosed
+	return nil
 }
