@@ -141,6 +141,67 @@ func TestFramingFormat(t *testing.T) {
 	}
 }
 
+func TestNewBufferedWriter(t *testing.T) {
+	// Test all 32 possible sub-sequences of these 5 input slices.
+	//
+	// Their lengths sum to 400,000, which is over 6 times the Writer ibuf
+	// capacity: 6 * maxUncompressedChunkLen is 393,216.
+	inputs := [][]byte{
+		bytes.Repeat([]byte{'a'}, 40000),
+		bytes.Repeat([]byte{'b'}, 150000),
+		bytes.Repeat([]byte{'c'}, 60000),
+		bytes.Repeat([]byte{'d'}, 120000),
+		bytes.Repeat([]byte{'e'}, 30000),
+	}
+loop:
+	for i := 0; i < 1<<uint(len(inputs)); i++ {
+		var want []byte
+		buf := new(bytes.Buffer)
+		w := NewBufferedWriter(buf)
+		for j, input := range inputs {
+			if i&(1<<uint(j)) == 0 {
+				continue
+			}
+			if _, err := w.Write(input); err != nil {
+				t.Errorf("i=%#02x: j=%d: Write: %v", i, j, err)
+				continue loop
+			}
+			want = append(want, input...)
+		}
+		if err := w.Close(); err != nil {
+			t.Errorf("i=%#02x: Close: %v", i, err)
+			continue
+		}
+		got, err := ioutil.ReadAll(NewReader(buf))
+		if err != nil {
+			t.Errorf("i=%#02x: ReadAll: %v", i, err)
+			continue
+		}
+		if err := cmp(got, want); err != nil {
+			t.Errorf("i=%#02x: %v", i, err)
+			continue
+		}
+	}
+}
+
+func TestFlush(t *testing.T) {
+	buf := new(bytes.Buffer)
+	w := NewBufferedWriter(buf)
+	defer w.Close()
+	if _, err := w.Write(bytes.Repeat([]byte{'x'}, 20)); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if n := buf.Len(); n != 0 {
+		t.Fatalf("before Flush: %d bytes were written to the underlying io.Writer, want 0", n)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if n := buf.Len(); n == 0 {
+		t.Fatalf("after Flush: %d bytes were written to the underlying io.Writer, want non-0", n)
+	}
+}
+
 func TestReaderReset(t *testing.T) {
 	gold := bytes.Repeat([]byte("All that is gold does not glitter,\n"), 10000)
 	buf := new(bytes.Buffer)
@@ -181,34 +242,75 @@ func TestReaderReset(t *testing.T) {
 
 func TestWriterReset(t *testing.T) {
 	gold := bytes.Repeat([]byte("Not all those who wander are lost;\n"), 10000)
-	var gots, wants [][]byte
 	const n = 20
-	w, failed := NewWriter(nil), false
-	for i := 0; i <= n; i++ {
-		buf := new(bytes.Buffer)
-		w.Reset(buf)
-		want := gold[:len(gold)*i/n]
-		if _, err := w.Write(want); err != nil {
-			t.Errorf("#%d: Write: %v", i, err)
-			failed = true
+	for _, buffered := range []bool{false, true} {
+		var w *Writer
+		if buffered {
+			w = NewBufferedWriter(nil)
+			defer w.Close()
+		} else {
+			w = NewWriter(nil)
+		}
+
+		var gots, wants [][]byte
+		failed := false
+		for i := 0; i <= n; i++ {
+			buf := new(bytes.Buffer)
+			w.Reset(buf)
+			want := gold[:len(gold)*i/n]
+			if _, err := w.Write(want); err != nil {
+				t.Errorf("#%d: Write: %v", i, err)
+				failed = true
+				continue
+			}
+			if buffered {
+				if err := w.Flush(); err != nil {
+					t.Errorf("#%d: Flush: %v", i, err)
+					failed = true
+					continue
+				}
+			}
+			got, err := ioutil.ReadAll(NewReader(buf))
+			if err != nil {
+				t.Errorf("#%d: ReadAll: %v", i, err)
+				failed = true
+				continue
+			}
+			gots = append(gots, got)
+			wants = append(wants, want)
+		}
+		if failed {
 			continue
 		}
-		got, err := ioutil.ReadAll(NewReader(buf))
-		if err != nil {
-			t.Errorf("#%d: ReadAll: %v", i, err)
-			failed = true
-			continue
+		for i := range gots {
+			if err := cmp(gots[i], wants[i]); err != nil {
+				t.Errorf("#%d: %v", i, err)
+			}
 		}
-		gots = append(gots, got)
-		wants = append(wants, want)
 	}
-	if failed {
-		return
+}
+
+func TestWriterResetWithoutFlush(t *testing.T) {
+	buf0 := new(bytes.Buffer)
+	buf1 := new(bytes.Buffer)
+	w := NewBufferedWriter(buf0)
+	if _, err := w.Write([]byte("xxx")); err != nil {
+		t.Fatalf("Write #0: %v", err)
 	}
-	for i := range gots {
-		if err := cmp(gots[i], wants[i]); err != nil {
-			t.Errorf("#%d: %v", i, err)
-		}
+	// Note that we don't Flush the Writer before calling Reset.
+	w.Reset(buf1)
+	if _, err := w.Write([]byte("yyy")); err != nil {
+		t.Fatalf("Write #1: %v", err)
+	}
+	if err := w.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	got, err := ioutil.ReadAll(NewReader(buf1))
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if err := cmp(got, []byte("yyy")); err != nil {
+		t.Fatal(err)
 	}
 }
 
