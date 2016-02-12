@@ -17,6 +17,9 @@ var (
 	ErrTooLarge = errors.New("snappy: decoded block is too large")
 	// ErrUnsupported reports that the input isn't supported.
 	ErrUnsupported = errors.New("snappy: unsupported input")
+
+	errUnsupportedCopy4Tag      = errors.New("snappy: unsupported COPY_4 tag")
+	errUnsupportedLiteralLength = errors.New("snappy: unsupported literal length")
 )
 
 // DecodedLen returns the length of the decoded block.
@@ -88,7 +91,7 @@ func Decode(dst, src []byte) ([]byte, error) {
 			}
 			length = int(x + 1)
 			if length <= 0 {
-				return nil, errors.New("snappy: unsupported literal length")
+				return nil, errUnsupportedLiteralLength
 			}
 			if length > len(dst)-d || length > len(src)-s {
 				return nil, ErrCorrupt
@@ -115,7 +118,7 @@ func Decode(dst, src []byte) ([]byte, error) {
 			offset = int(src[s-2]) | int(src[s-1])<<8
 
 		case tagCopy4:
-			return nil, errors.New("snappy: unsupported COPY_4 tag")
+			return nil, errUnsupportedCopy4Tag
 		}
 
 		end := d + length

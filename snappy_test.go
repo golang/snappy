@@ -106,6 +106,122 @@ func TestInvalidVarint(t *testing.T) {
 	}
 }
 
+func TestDecode(t *testing.T) {
+	testCases := []struct{
+		desc string
+		input string
+		want string
+		wantErr error
+	}{{
+		`decodedLen=0x100000000 is too long`,
+		"\x80\x80\x80\x80\x10" + "\x00\x41",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=3; tagLiteral, 0-byte length; length=3; valid input`,
+		"\x03" + "\x08\xff\xff\xff",
+		"\xff\xff\xff",
+		nil,
+	}, {
+		`decodedLen=1; tagLiteral, 1-byte length; not enough length bytes`,
+		"\x01" + "\xf0",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=3; tagLiteral, 1-byte length; length=3; valid input`,
+		"\x03" + "\xf0\x02\xff\xff\xff",
+		"\xff\xff\xff",
+		nil,
+	}, {
+		`decodedLen=1; tagLiteral, 2-byte length; not enough length bytes`,
+		"\x01" + "\xf4\x00",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=3; tagLiteral, 2-byte length; length=3; valid input`,
+		"\x03" + "\xf4\x02\x00\xff\xff\xff",
+		"\xff\xff\xff",
+		nil,
+	}, {
+		`decodedLen=1; tagLiteral, 3-byte length; not enough length bytes`,
+		"\x01" + "\xf8\x00\x00",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=3; tagLiteral, 3-byte length; length=3; valid input`,
+		"\x03" + "\xf8\x02\x00\x00\xff\xff\xff",
+		"\xff\xff\xff",
+		nil,
+	}, {
+		`decodedLen=1; tagLiteral, 4-byte length; not enough length bytes`,
+		"\x01" + "\xfc\x00\x00\x00",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=1; tagLiteral, 4-byte length; length=3; not enough dst bytes`,
+		"\x01" + "\xfc\x02\x00\x00\x00\xff\xff\xff",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=4; tagLiteral, 4-byte length; length=3; not enough src bytes`,
+		"\x04" + "\xfc\x02\x00\x00\x00\xff",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=3; tagLiteral, 4-byte length; length=3; valid input`,
+		"\x03" + "\xfc\x02\x00\x00\x00\xff\xff\xff",
+		"\xff\xff\xff",
+		nil,
+	}, {
+		`decodedLen=4; tagCopy1, 1 extra length|offset byte; not enough extra bytes`,
+		"\x04" + "\x01",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=4; tagCopy2, 2 extra length|offset bytes; not enough extra bytes`,
+		"\x04" + "\x02\x00",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=4; tagCopy4; unsupported COPY_4 tag`,
+		"\x04" + "\x03\x00\x00\x00\x00",
+		"",
+		errUnsupportedCopy4Tag,
+	}, {
+		`decodedLen=4; tagLiteral (4 bytes "abcd"); valid input`,
+		"\x04" + "\x0cabcd",
+		"abcd",
+		nil,
+	}, {
+		`decodedLen=8; tagLiteral (4 bytes "abcd"); tagCopy1; length=4 offset=4; valid input`,
+		"\x08" + "\x0cabcd" + "\x01\x04",
+		"abcdabcd",
+		nil,
+	}, {
+		`decodedLen=9; tagLiteral (4 bytes "abcd"); tagCopy1; length=4 offset=4; inconsistent dLen`,
+		"\x09" + "\x0cabcd" + "\x01\x04",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=8; tagLiteral (4 bytes "abcd"); tagCopy1; length=4 offset=5; offset too large`,
+		"\x08" + "\x0cabcd" + "\x01\x05",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=7; tagLiteral (4 bytes "abcd"); tagCopy1; length=4 offset=4; length too large`,
+		"\x07" + "\x0cabcd" + "\x01\x04",
+		"",
+		ErrCorrupt,
+	}}
+
+	for _, tc := range testCases {
+		g, gotErr := Decode(nil, []byte(tc.input))
+		if got := string(g); got != tc.want || gotErr != tc.wantErr {
+			t.Errorf("%s:\ngot  %q, %v\nwant %q, %v", tc.desc, got, gotErr, tc.want, tc.wantErr)
+		}
+	}
+}
+
 func cmp(a, b []byte) error {
 	if len(a) != len(b) {
 		return fmt.Errorf("got %d bytes, want %d", len(a), len(b))
