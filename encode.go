@@ -111,7 +111,7 @@ func Encode(dst, src []byte) []byte {
 		t   int // The last position with the same hash as s.
 		lit int // The start position of any pending literal bytes.
 	)
-	for s+3 < len(src) {
+	for uint(s+3) < uint(len(src)) { // The uint conversions catch overflow from the +3.
 		// Update the hash table.
 		b0, b1, b2, b3 := src[s], src[s+1], src[s+2], src[s+3]
 		h := uint32(b0) | uint32(b1)<<8 | uint32(b2)<<16 | uint32(b3)<<24

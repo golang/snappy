@@ -63,25 +63,25 @@ func Decode(dst, src []byte) ([]byte, error) {
 				s++
 			case x == 60:
 				s += 2
-				if s > len(src) {
+				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
 					return nil, ErrCorrupt
 				}
 				x = uint(src[s-1])
 			case x == 61:
 				s += 3
-				if s > len(src) {
+				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
 					return nil, ErrCorrupt
 				}
 				x = uint(src[s-2]) | uint(src[s-1])<<8
 			case x == 62:
 				s += 4
-				if s > len(src) {
+				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
 					return nil, ErrCorrupt
 				}
 				x = uint(src[s-3]) | uint(src[s-2])<<8 | uint(src[s-1])<<16
 			case x == 63:
 				s += 5
-				if s > len(src) {
+				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
 					return nil, ErrCorrupt
 				}
 				x = uint(src[s-4]) | uint(src[s-3])<<8 | uint(src[s-2])<<16 | uint(src[s-1])<<24
