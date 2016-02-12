@@ -137,8 +137,13 @@ func (e *encoder) encode(dst, src []byte) []byte {
 		// and shift the values against this zero: add 1 on writes,
 		// subtract 1 on reads.
 		t, *p = int(*p)+tadd, int32(s+sadd)
+
+		// We calculate the proposed offset in the current buffer.
+		// If t >= s this will be negative, when converted to a uint this will always be > maxOffset.
+		offset := uint(s - t - 1)
+
 		// If t is invalid or src[s:s+4] differs from src[t:t+4], accumulate a literal byte.
-		if t < 0 || uint(s-t) >= maxOffset || b0 != src[t] || b1 != src[t+1] || b2 != src[t+2] || b3 != src[t+3] {
+		if t < 0 || offset >= (maxOffset-1) || b0 != src[t] || b1 != src[t+1] || b2 != src[t+2] || b3 != src[t+3] {
 			s++
 			continue
 		}
