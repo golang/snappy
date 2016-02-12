@@ -121,11 +121,10 @@ func Decode(dst, src []byte) ([]byte, error) {
 			return nil, errUnsupportedCopy4Tag
 		}
 
-		end := d + length
-		if offset > d || end > len(dst) {
+		if offset > d || length > len(dst)-d {
 			return nil, ErrCorrupt
 		}
-		for ; d < end; d++ {
+		for end := d + length; d != end; d++ {
 			dst[d] = dst[d-offset]
 		}
 	}
