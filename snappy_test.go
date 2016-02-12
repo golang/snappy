@@ -107,10 +107,10 @@ func TestInvalidVarint(t *testing.T) {
 }
 
 func TestDecode(t *testing.T) {
-	testCases := []struct{
-		desc string
-		input string
-		want string
+	testCases := []struct {
+		desc    string
+		input   string
+		want    string
 		wantErr error
 	}{{
 		`decodedLen=0x100000000 is too long`,
