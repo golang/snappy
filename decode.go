@@ -141,7 +141,7 @@ func NewReader(r io.Reader) *Reader {
 	return &Reader{
 		r:       r,
 		decoded: make([]byte, maxUncompressedChunkLen),
-		buf:     make([]byte, MaxEncodedLen(maxUncompressedChunkLen)+checksumSize),
+		buf:     make([]byte, maxEncodedLenOfMaxUncompressedChunkLen+checksumSize),
 	}
 }
 

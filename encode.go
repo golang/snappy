@@ -79,9 +79,12 @@ func emitCopy(dst []byte, offset, length int32) int {
 // Encode returns the encoded form of src. The returned slice may be a sub-
 // slice of dst if dst was large enough to hold the entire encoded block.
 // Otherwise, a newly allocated slice will be returned.
+//
 // It is valid to pass a nil dst.
 func Encode(dst, src []byte) []byte {
-	if n := MaxEncodedLen(len(src)); len(dst) < n {
+	if n := MaxEncodedLen(len(src)); n < 0 {
+		panic(ErrTooLarge)
+	} else if len(dst) < n {
 		dst = make([]byte, n)
 	}
 
@@ -176,7 +179,13 @@ func encode(dst, src []byte) (d int) {
 
 // MaxEncodedLen returns the maximum length of a snappy block, given its
 // uncompressed length.
+//
+// It will return a negative value if srcLen is too large to encode.
 func MaxEncodedLen(srcLen int) int {
+	n := uint64(srcLen)
+	if n > 0xffffffff {
+		return -1
+	}
 	// Compressed data can be defined as:
 	//    compressed := item* literal*
 	//    item       := literal* copy
@@ -197,7 +206,11 @@ func MaxEncodedLen(srcLen int) int {
 	// That is, 6 bytes of input turn into 7 bytes of "compressed" data.
 	//
 	// This last factor dominates the blowup, so the final estimate is:
-	return 32 + srcLen + srcLen/6
+	n = 32 + n + n/6
+	if n > 0xffffffff {
+		return -1
+	}
+	return int(n)
 }
 
 var errClosed = errors.New("snappy: Writer is closed")
