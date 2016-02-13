@@ -198,6 +198,16 @@ func TestDecode(t *testing.T) {
 		"abcdabcd",
 		nil,
 	}, {
+		`decodedLen=8; tagLiteral (4 bytes "abcd"); tagCopy1; length=4 offset=2; valid input`,
+		"\x08" + "\x0cabcd" + "\x01\x02",
+		"abcdcdcd",
+		nil,
+	}, {
+		`decodedLen=8; tagLiteral (4 bytes "abcd"); tagCopy1; length=4 offset=1; valid input`,
+		"\x08" + "\x0cabcd" + "\x01\x01",
+		"abcddddd",
+		nil,
+	}, {
 		`decodedLen=8; tagLiteral (4 bytes "abcd"); tagCopy1; length=4 offset=0; zero offset`,
 		"\x08" + "\x0cabcd" + "\x01\x00",
 		"",
