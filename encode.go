@@ -52,7 +52,7 @@ func emitLiteral(dst, lit []byte) int {
 }
 
 // emitCopy writes a copy chunk and returns the number of bytes written.
-func emitCopy(dst []byte, offset, length int) int {
+func emitCopy(dst []byte, offset, length int32) int {
 	i := 0
 	for length > 0 {
 		x := length - 4
@@ -88,12 +88,36 @@ func Encode(dst, src []byte) []byte {
 	// The block starts with the varint-encoded length of the decompressed bytes.
 	d := binary.PutUvarint(dst, uint64(len(src)))
 
+	for len(src) > 0 {
+		p := src
+		src = nil
+		if len(p) > maxInternalEncodeSrcLen {
+			p, src = p[:maxInternalEncodeSrcLen], p[maxInternalEncodeSrcLen:]
+		}
+		d += encode(dst[d:], p)
+	}
+	return dst[:d]
+}
+
+// maxInternalEncodeSrcLen must be less than math.MaxInt32, so that in the
+// (internal) encode function, it is safe to have the s variable (which indexes
+// the src slice), and therefore the hash table entries, to have type int32
+// instead of int.
+const maxInternalEncodeSrcLen = 0x40000000
+
+// encode encodes a non-empty src to a guaranteed-large-enough dst. It assumes
+// that the varint-encoded length of the decompressed bytes has already been
+// written.
+//
+// It also assumes that:
+//	len(dst) >= MaxEncodedLen(len(src)) &&
+// 	0 < len(src) &&
+//	len(src) <= maxInternalEncodeSrcLen &&
+// 	maxInternalEncodeSrcLen < math.MaxInt32.
+func encode(dst, src []byte) (d int) {
 	// Return early if src is short.
 	if len(src) <= 4 {
-		if len(src) != 0 {
-			d += emitLiteral(dst[d:], src)
-		}
-		return dst[:d]
+		return emitLiteral(dst, src)
 	}
 
 	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
@@ -103,15 +127,15 @@ func Encode(dst, src []byte) []byte {
 		shift--
 		tableSize *= 2
 	}
-	var table [maxTableSize]int
+	var table [maxTableSize]int32
 
 	// Iterate over the source bytes.
 	var (
-		s   int // The iterator position.
-		t   int // The last position with the same hash as s.
-		lit int // The start position of any pending literal bytes.
+		s   int32 // The iterator position.
+		t   int32 // The last position with the same hash as s.
+		lit int32 // The start position of any pending literal bytes.
 	)
-	for uint(s+3) < uint(len(src)) { // The uint conversions catch overflow from the +3.
+	for uint32(s+3) < uint32(len(src)) { // The uint32 conversions catch overflow from the +3.
 		// Update the hash table.
 		b0, b1, b2, b3 := src[s], src[s+1], src[s+2], src[s+3]
 		h := uint32(b0) | uint32(b1)<<8 | uint32(b2)<<16 | uint32(b3)<<24
@@ -134,7 +158,7 @@ func Encode(dst, src []byte) []byte {
 		// Extend the match to be as long as possible.
 		s0 := s
 		s, t = s+4, t+4
-		for s < len(src) && src[s] == src[t] {
+		for int(s) < len(src) && src[s] == src[t] {
 			s++
 			t++
 		}
@@ -144,10 +168,10 @@ func Encode(dst, src []byte) []byte {
 	}
 
 	// Emit any final pending literal bytes and return.
-	if lit != len(src) {
+	if int(lit) != len(src) {
 		d += emitLiteral(dst[d:], src[lit:])
 	}
-	return dst[:d]
+	return d
 }
 
 // MaxEncodedLen returns the maximum length of a snappy block, given its
