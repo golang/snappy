@@ -66,7 +66,7 @@ func TestSmallRand(t *testing.T) {
 	for n := 1; n < 20000; n += 23 {
 		b := make([]byte, n)
 		for i := range b {
-			b[i] = uint8(rng.Uint32())
+			b[i] = uint8(rng.Intn(256))
 		}
 		if err := roundtrip(b, nil, nil); err != nil {
 			t.Fatal(err)
@@ -234,6 +234,26 @@ func TestDecode(t *testing.T) {
 		if got := string(g); got != tc.want || gotErr != tc.wantErr {
 			t.Errorf("%s:\ngot  %q, %v\nwant %q, %v", tc.desc, got, gotErr, tc.want, tc.wantErr)
 		}
+	}
+}
+
+// TestEncodeNoiseThenRepeats encodes a 32K block for which the first half is
+// very incompressible and the second half is very compressible. The encoded
+// form's length should be closer to 50% of the original length than 100%.
+func TestEncodeNoiseThenRepeats(t *testing.T) {
+	const origLen = 32768
+	src := make([]byte, origLen)
+	rng := rand.New(rand.NewSource(1))
+	firstHalf, secondHalf := src[:origLen/2], src[origLen/2:]
+	for i := range firstHalf {
+		firstHalf[i] = uint8(rng.Intn(256))
+	}
+	for i := range secondHalf {
+		secondHalf[i] = uint8(i >> 8)
+	}
+	dst := Encode(nil, src)
+	if got, want := len(dst), origLen*3/4; got >= want {
+		t.Fatalf("got %d encoded bytes, want less than %d", got, want)
 	}
 }
 
