@@ -23,9 +23,9 @@ var (
 	testdata = flag.String("testdata", "testdata", "Directory containing the test data")
 )
 
-func TestMaxEncodedLenOfMaxUncompressedChunkLen(t *testing.T) {
-	got := maxEncodedLenOfMaxUncompressedChunkLen
-	want := MaxEncodedLen(maxUncompressedChunkLen)
+func TestMaxEncodedLenOfMaxBlockSize(t *testing.T) {
+	got := maxEncodedLenOfMaxBlockSize
+	want := MaxEncodedLen(maxBlockSize)
 	if got != want {
 		t.Fatalf("got %d, want %d", got, want)
 	}
@@ -237,23 +237,24 @@ func TestDecode(t *testing.T) {
 	}
 }
 
-// TestEncodeNoiseThenRepeats encodes a 32K block for which the first half is
-// very incompressible and the second half is very compressible. The encoded
-// form's length should be closer to 50% of the original length than 100%.
+// TestEncodeNoiseThenRepeats encodes input for which the first half is very
+// incompressible and the second half is very compressible. The encoded form's
+// length should be closer to 50% of the original length than 100%.
 func TestEncodeNoiseThenRepeats(t *testing.T) {
-	const origLen = 32768
-	src := make([]byte, origLen)
-	rng := rand.New(rand.NewSource(1))
-	firstHalf, secondHalf := src[:origLen/2], src[origLen/2:]
-	for i := range firstHalf {
-		firstHalf[i] = uint8(rng.Intn(256))
-	}
-	for i := range secondHalf {
-		secondHalf[i] = uint8(i >> 8)
-	}
-	dst := Encode(nil, src)
-	if got, want := len(dst), origLen*3/4; got >= want {
-		t.Fatalf("got %d encoded bytes, want less than %d", got, want)
+	for _, origLen := range []int{32 * 1024, 256 * 1024, 2048 * 1024} {
+		src := make([]byte, origLen)
+		rng := rand.New(rand.NewSource(1))
+		firstHalf, secondHalf := src[:origLen/2], src[origLen/2:]
+		for i := range firstHalf {
+			firstHalf[i] = uint8(rng.Intn(256))
+		}
+		for i := range secondHalf {
+			secondHalf[i] = uint8(i >> 8)
+		}
+		dst := Encode(nil, src)
+		if got, want := len(dst), origLen*3/4; got >= want {
+			t.Errorf("origLen=%d: got %d encoded bytes, want less than %d", origLen, got, want)
+		}
 	}
 }
 
@@ -272,7 +273,7 @@ func cmp(a, b []byte) error {
 func TestFramingFormat(t *testing.T) {
 	// src is comprised of alternating 1e5-sized sequences of random
 	// (incompressible) bytes and repeated (compressible) bytes. 1e5 was chosen
-	// because it is larger than maxUncompressedChunkLen (64k).
+	// because it is larger than maxBlockSize (64k).
 	src := make([]byte, 1e6)
 	rng := rand.New(rand.NewSource(1))
 	for i := 0; i < 10; i++ {
@@ -330,7 +331,7 @@ func TestNewBufferedWriter(t *testing.T) {
 	// Test all 32 possible sub-sequences of these 5 input slices.
 	//
 	// Their lengths sum to 400,000, which is over 6 times the Writer ibuf
-	// capacity: 6 * maxUncompressedChunkLen is 393,216.
+	// capacity: 6 * maxBlockSize is 393,216.
 	inputs := [][]byte{
 		bytes.Repeat([]byte{'a'}, 40000),
 		bytes.Repeat([]byte{'b'}, 150000),

@@ -140,8 +140,8 @@ func Decode(dst, src []byte) ([]byte, error) {
 func NewReader(r io.Reader) *Reader {
 	return &Reader{
 		r:       r,
-		decoded: make([]byte, maxUncompressedChunkLen),
-		buf:     make([]byte, maxEncodedLenOfMaxUncompressedChunkLen+checksumSize),
+		decoded: make([]byte, maxBlockSize),
+		buf:     make([]byte, maxEncodedLenOfMaxBlockSize+checksumSize),
 	}
 }
 
