@@ -87,22 +87,31 @@ func TestSmallRegular(t *testing.T) {
 }
 
 func TestInvalidVarint(t *testing.T) {
-	data := []byte("\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00")
-	if _, err := DecodedLen(data); err != ErrCorrupt {
-		t.Errorf("DecodedLen: got %v, want ErrCorrupt", err)
-	}
-	if _, err := Decode(nil, data); err != ErrCorrupt {
-		t.Errorf("Decode: got %v, want ErrCorrupt", err)
-	}
+	testCases := []struct {
+		desc  string
+		input string
+	}{{
+		"invalid varint, final byte has continuation bit set",
+		"\xff",
+	}, {
+		"invalid varint, value overflows uint64",
+		"\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\x00",
+	}, {
+		// https://github.com/google/snappy/blob/master/format_description.txt
+		// says that "the stream starts with the uncompressed length [as a
+		// varint] (up to a maximum of 2^32 - 1)".
+		"valid varint (as uint64), but value overflows uint32",
+		"\x80\x80\x80\x80\x10",
+	}}
 
-	// The encoded varint overflows 32 bits
-	data = []byte("\xff\xff\xff\xff\xff\x00")
-
-	if _, err := DecodedLen(data); err != ErrCorrupt {
-		t.Errorf("DecodedLen: got %v, want ErrCorrupt", err)
-	}
-	if _, err := Decode(nil, data); err != ErrCorrupt {
-		t.Errorf("Decode: got %v, want ErrCorrupt", err)
+	for _, tc := range testCases {
+		input := []byte(tc.input)
+		if _, err := DecodedLen(input); err != ErrCorrupt {
+			t.Errorf("%s: DecodedLen: got %v, want ErrCorrupt", tc.desc, err)
+		}
+		if _, err := Decode(nil, input); err != ErrCorrupt {
+			t.Errorf("%s: Decode: got %v, want ErrCorrupt", tc.desc, err)
+		}
 	}
 }
 
@@ -123,11 +132,6 @@ func TestDecode(t *testing.T) {
 		"\x00",
 		"",
 		nil,
-	}, {
-		`decodedLen=0x100000000 is too long`,
-		"\x80\x80\x80\x80\x10" + "\x00\x41",
-		"",
-		ErrCorrupt,
 	}, {
 		`decodedLen=3; tagLiteral, 0-byte length; length=3; valid input`,
 		"\x03" + "\x08\xff\xff\xff",
