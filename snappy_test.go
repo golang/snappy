@@ -107,12 +107,23 @@ func TestInvalidVarint(t *testing.T) {
 }
 
 func TestDecode(t *testing.T) {
+	lit40Bytes := make([]byte, 40)
+	for i := range lit40Bytes {
+		lit40Bytes[i] = byte(i)
+	}
+	lit40 := string(lit40Bytes)
+
 	testCases := []struct {
 		desc    string
 		input   string
 		want    string
 		wantErr error
 	}{{
+		`decodedLen=0; valid input`,
+		"\x00",
+		"",
+		nil,
+	}, {
 		`decodedLen=0x100000000 is too long`,
 		"\x80\x80\x80\x80\x10" + "\x00\x41",
 		"",
@@ -121,6 +132,21 @@ func TestDecode(t *testing.T) {
 		`decodedLen=3; tagLiteral, 0-byte length; length=3; valid input`,
 		"\x03" + "\x08\xff\xff\xff",
 		"\xff\xff\xff",
+		nil,
+	}, {
+		`decodedLen=2; tagLiteral, 0-byte length; length=3; not enough dst bytes`,
+		"\x02" + "\x08\xff\xff\xff",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=3; tagLiteral, 0-byte length; length=3; not enough src bytes`,
+		"\x03" + "\x08\xff\xff",
+		"",
+		ErrCorrupt,
+	}, {
+		`decodedLen=40; tagLiteral, 0-byte length; length=40; valid input`,
+		"\x28" + "\x9c" + lit40,
+		lit40,
 		nil,
 	}, {
 		`decodedLen=1; tagLiteral, 1-byte length; not enough length bytes`,
@@ -193,6 +219,11 @@ func TestDecode(t *testing.T) {
 		"abcd",
 		nil,
 	}, {
+		`decodedLen=13; tagLiteral (4 bytes "abcd"); tagCopy1; length=9 offset=4; valid input`,
+		"\x0d" + "\x0cabcd" + "\x15\x04",
+		"abcdabcdabcda",
+		nil,
+	}, {
 		`decodedLen=8; tagLiteral (4 bytes "abcd"); tagCopy1; length=4 offset=4; valid input`,
 		"\x08" + "\x0cabcd" + "\x01\x04",
 		"abcdabcd",
@@ -227,12 +258,18 @@ func TestDecode(t *testing.T) {
 		"\x07" + "\x0cabcd" + "\x01\x04",
 		"",
 		ErrCorrupt,
+	}, {
+		`decodedLen=6; tagLiteral (4 bytes "abcd"); tagCopy2; length=2 offset=3; valid input`,
+		"\x06" + "\x0cabcd" + "\x06\x03\x00",
+		"abcdbc",
+		nil,
 	}}
 
-	for _, tc := range testCases {
+	for i, tc := range testCases {
 		g, gotErr := Decode(nil, []byte(tc.input))
 		if got := string(g); got != tc.want || gotErr != tc.wantErr {
-			t.Errorf("%s:\ngot  %q, %v\nwant %q, %v", tc.desc, got, gotErr, tc.want, tc.wantErr)
+			t.Errorf("#%d (%s):\ngot  %q, %v\nwant %q, %v",
+				i, tc.desc, got, gotErr, tc.want, tc.wantErr)
 		}
 	}
 }
