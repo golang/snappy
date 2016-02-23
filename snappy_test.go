@@ -6,6 +6,7 @@ package snappy
 
 import (
 	"bytes"
+	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
@@ -274,6 +275,57 @@ func TestDecode(t *testing.T) {
 		if got := string(g); got != tc.want || gotErr != tc.wantErr {
 			t.Errorf("#%d (%s):\ngot  %q, %v\nwant %q, %v",
 				i, tc.desc, got, gotErr, tc.want, tc.wantErr)
+		}
+	}
+}
+
+// TestDecodeLengthOffset tests decoding an encoding of the form literal +
+// copy-length-offset + literal. For example: "abcdefghijkl" + "efghij" + "AB".
+func TestDecodeLengthOffset(t *testing.T) {
+	const (
+		prefix = "abcdefghijkl"
+		suffix = "ABCDEFGHIJKL"
+	)
+	var gotBuf, wantBuf, inputBuf [256]byte
+	for length := 1; length < 12; length++ {
+		for offset := 1; offset < 12; offset++ {
+			for suffixLen := 0; suffixLen < 12; suffixLen++ {
+				inputLen := binary.PutUvarint(inputBuf[:], uint64(len(prefix)+length+suffixLen))
+				inputBuf[inputLen] = tagLiteral + 4*byte(len(prefix)-1)
+				inputLen++
+				inputLen += copy(inputBuf[inputLen:], prefix)
+				inputBuf[inputLen+0] = tagCopy2 + 4*byte(length-1)
+				inputBuf[inputLen+1] = byte(offset)
+				inputBuf[inputLen+2] = 0x00
+				inputLen += 3
+				if suffixLen > 0 {
+					inputBuf[inputLen] = tagLiteral + 4*byte(suffixLen-1)
+					inputLen++
+					inputLen += copy(inputBuf[inputLen:], suffix[:suffixLen])
+				}
+				input := inputBuf[:inputLen]
+
+				got, err := Decode(gotBuf[:], input)
+				if err != nil {
+					t.Errorf("length=%d, offset=%d; suffixLen=%d: %v", length, offset, suffixLen)
+					continue
+				}
+
+				wantLen := 0
+				wantLen += copy(wantBuf[wantLen:], prefix)
+				for i := 0; i < length; i++ {
+					wantBuf[wantLen] = wantBuf[wantLen-offset]
+					wantLen++
+				}
+				wantLen += copy(wantBuf[wantLen:], suffix[:suffixLen])
+				want := wantBuf[:wantLen]
+
+				if !bytes.Equal(got, want) {
+					t.Errorf("length=%d, offset=%d; suffixLen=%d:\ninput % x\ngot   % x\nwant  % x",
+						length, offset, suffixLen, input, got, want)
+					continue
+				}
+			}
 		}
 	}
 }
