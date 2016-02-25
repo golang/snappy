@@ -330,8 +330,8 @@ loop:
 // copy-length-offset + literal. For example: "abcdefghijkl" + "efghij" + "AB".
 func TestDecodeLengthOffset(t *testing.T) {
 	const (
-		prefix = "abcdefghijkl"
-		suffix = "ABCDEFGHIJKL"
+		prefix = "abcdefghijklmnopqr"
+		suffix = "ABCDEFGHIJKLMNOPQR"
 
 		// notPresent is a byte value that is not present in either the input
 		// or the output. It is written to gotBuf to check that Decode does not
@@ -339,10 +339,10 @@ func TestDecodeLengthOffset(t *testing.T) {
 		notPresent = 0xfe
 	)
 	var gotBuf, wantBuf, inputBuf [256]byte
-	for length := 1; length < 12; length++ {
-		for offset := 1; offset < 12; offset++ {
+	for length := 1; length <= 18; length++ {
+		for offset := 1; offset <= 18; offset++ {
 		loop:
-			for suffixLen := 0; suffixLen < 12; suffixLen++ {
+			for suffixLen := 0; suffixLen <= 18; suffixLen++ {
 				totalLen := uint64(len(prefix) + length + suffixLen)
 
 				inputLen := binary.PutUvarint(inputBuf[:], totalLen)
