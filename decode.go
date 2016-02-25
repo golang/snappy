@@ -63,7 +63,7 @@ func Decode(dst, src []byte) ([]byte, error) {
 	for s < len(src) {
 		switch src[s] & 0x03 {
 		case tagLiteral:
-			x := uint(src[s] >> 2)
+			x := uint32(src[s] >> 2)
 			switch {
 			case x < 60:
 				s++
@@ -72,27 +72,27 @@ func Decode(dst, src []byte) ([]byte, error) {
 				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
 					return nil, ErrCorrupt
 				}
-				x = uint(src[s-1])
+				x = uint32(src[s-1])
 			case x == 61:
 				s += 3
 				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
 					return nil, ErrCorrupt
 				}
-				x = uint(src[s-2]) | uint(src[s-1])<<8
+				x = uint32(src[s-2]) | uint32(src[s-1])<<8
 			case x == 62:
 				s += 4
 				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
 					return nil, ErrCorrupt
 				}
-				x = uint(src[s-3]) | uint(src[s-2])<<8 | uint(src[s-1])<<16
+				x = uint32(src[s-3]) | uint32(src[s-2])<<8 | uint32(src[s-1])<<16
 			case x == 63:
 				s += 5
 				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
 					return nil, ErrCorrupt
 				}
-				x = uint(src[s-4]) | uint(src[s-3])<<8 | uint(src[s-2])<<16 | uint(src[s-1])<<24
+				x = uint32(src[s-4]) | uint32(src[s-3])<<8 | uint32(src[s-2])<<16 | uint32(src[s-1])<<24
 			}
-			length = int(x + 1)
+			length = int(x) + 1
 			if length <= 0 {
 				return nil, errUnsupportedLiteralLength
 			}
