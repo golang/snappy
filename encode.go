@@ -10,7 +10,8 @@ import (
 	"io"
 )
 
-// We limit how far copy back-references can go, the same as the C++ code.
+// maxOffset limits how far copy back-references can go, the same as the C++
+// code.
 const maxOffset = 1 << 15
 
 // emitLiteral writes a literal chunk and returns the number of bytes written.
