@@ -52,7 +52,9 @@ func Decode(dst, src []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(dst) < dLen {
+	if dLen <= len(dst) {
+		dst = dst[:dLen]
+	} else {
 		dst = make([]byte, dLen)
 	}
 
