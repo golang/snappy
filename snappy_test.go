@@ -707,9 +707,6 @@ func BenchmarkRandomEncode(b *testing.B) {
 // testFiles' values are copied directly from
 // https://raw.githubusercontent.com/google/snappy/master/snappy_unittest.cc
 // The label field is unused in snappy-go.
-//
-// If this list changes (due to the upstream C++ list changing), remember to
-// update the .gitignore file in this repository.
 var testFiles = []struct {
 	label     string
 	filename  string
