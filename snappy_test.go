@@ -19,10 +19,7 @@ import (
 	"testing"
 )
 
-var (
-	download = flag.Bool("download", false, "If true, download any missing files before running benchmarks")
-	testdata = flag.String("testdata", "testdata", "Directory containing the test data")
-)
+var download = flag.Bool("download", false, "If true, download any missing files before running benchmarks")
 
 func TestMaxEncodedLenOfMaxBlockSize(t *testing.T) {
 	got := maxEncodedLenOfMaxBlockSize
@@ -732,11 +729,16 @@ var testFiles = []struct {
 	{"gaviota", "kppkn.gtb", 0},
 }
 
-// The test data files are present at this canonical URL.
-const baseURL = "https://raw.githubusercontent.com/google/snappy/master/testdata/"
+const (
+	// The benchmark data files are at this canonical URL.
+	benchURL = "https://raw.githubusercontent.com/google/snappy/master/testdata/"
 
-func downloadTestdata(b *testing.B, basename string) (errRet error) {
-	filename := filepath.Join(*testdata, basename)
+	// They are copied to this local directory.
+	benchDir = "testdata/bench"
+)
+
+func downloadBenchmarkFiles(b *testing.B, basename string) (errRet error) {
+	filename := filepath.Join(benchDir, basename)
 	if stat, err := os.Stat(filename); err == nil && stat.Size() != 0 {
 		return nil
 	}
@@ -746,8 +748,8 @@ func downloadTestdata(b *testing.B, basename string) (errRet error) {
 	}
 	// Download the official snappy C++ implementation reference test data
 	// files for benchmarking.
-	if err := os.Mkdir(*testdata, 0777); err != nil && !os.IsExist(err) {
-		return fmt.Errorf("failed to create testdata: %s", err)
+	if err := os.MkdirAll(benchDir, 0777); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("failed to create %s: %s", benchDir, err)
 	}
 
 	f, err := os.Create(filename)
@@ -760,7 +762,7 @@ func downloadTestdata(b *testing.B, basename string) (errRet error) {
 			os.Remove(filename)
 		}
 	}()
-	url := baseURL + basename
+	url := benchURL + basename
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("failed to download %s: %s", url, err)
@@ -777,10 +779,10 @@ func downloadTestdata(b *testing.B, basename string) (errRet error) {
 }
 
 func benchFile(b *testing.B, n int, decode bool) {
-	if err := downloadTestdata(b, testFiles[n].filename); err != nil {
+	if err := downloadBenchmarkFiles(b, testFiles[n].filename); err != nil {
 		b.Fatalf("failed to download testdata: %s", err)
 	}
-	data := readFile(b, filepath.Join(*testdata, testFiles[n].filename))
+	data := readFile(b, filepath.Join(benchDir, testFiles[n].filename))
 	if n := testFiles[n].sizeLimit; 0 < n && n < len(data) {
 		data = data[:n]
 	}
