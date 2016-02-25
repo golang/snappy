@@ -29,13 +29,28 @@ func TestMaxEncodedLenOfMaxBlockSize(t *testing.T) {
 	}
 }
 
+func cmp(a, b []byte) error {
+	if bytes.Equal(a, b) {
+		return nil
+	}
+	if len(a) != len(b) {
+		return fmt.Errorf("got %d bytes, want %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return fmt.Errorf("byte #%d: got 0x%02x, want 0x%02x", i, a[i], b[i])
+		}
+	}
+	return nil
+}
+
 func roundtrip(b, ebuf, dbuf []byte) error {
 	d, err := Decode(dbuf, Encode(ebuf, b))
 	if err != nil {
 		return fmt.Errorf("decoding error: %v", err)
 	}
-	if !bytes.Equal(b, d) {
-		return fmt.Errorf("roundtrip mismatch:\n\twant %v\n\tgot  %v", b, d)
+	if err := cmp(d, b); err != nil {
+		return fmt.Errorf("roundtrip mismatch: %v", err)
 	}
 	return nil
 }
@@ -327,6 +342,24 @@ func TestDecodeLengthOffset(t *testing.T) {
 	}
 }
 
+func TestDecodeGoldenInput(t *testing.T) {
+	src, err := ioutil.ReadFile("testdata/pi.txt.rawsnappy")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	got, err := Decode(nil, src)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	want, err := ioutil.ReadFile("testdata/pi.txt")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if err := cmp(got, want); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestEncodeNoiseThenRepeats encodes input for which the first half is very
 // incompressible and the second half is very compressible. The encoded form's
 // length should be closer to 50% of the original length than 100%.
@@ -346,18 +379,6 @@ func TestEncodeNoiseThenRepeats(t *testing.T) {
 			t.Errorf("origLen=%d: got %d encoded bytes, want less than %d", origLen, got, want)
 		}
 	}
-}
-
-func cmp(a, b []byte) error {
-	if len(a) != len(b) {
-		return fmt.Errorf("got %d bytes, want %d", len(a), len(b))
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return fmt.Errorf("byte #%d: got 0x%02x, want 0x%02x", i, a[i], b[i])
-		}
-	}
-	return nil
 }
 
 func TestFramingFormat(t *testing.T) {
