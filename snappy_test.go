@@ -282,18 +282,26 @@ func TestDecode(t *testing.T) {
 		nil,
 	}}
 
-	// notPresent is a byte value that is not present in either the input or
-	// the output. It is written to dBuf to check that Decode does not write
-	// bytes past the end of dBuf[:dLen].
-	const notPresent = 0xfe
+	const (
+		// notPresentXxx defines a range of byte values [0xa0, 0xc5) that are
+		// not present in either the input or the output. It is written to dBuf
+		// to check that Decode does not write bytes past the end of
+		// dBuf[:dLen].
+		//
+		// The magic number 37 was chosen because it is prime. A more 'natural'
+		// number like 32 might lead to a false negative if, for example, a
+		// byte was incorrectly copied 4*8 bytes later.
+		notPresentBase = 0xa0
+		notPresentLen  = 37
+	)
 
 	var dBuf [100]byte
 loop:
 	for i, tc := range testCases {
 		input := []byte(tc.input)
 		for _, x := range input {
-			if x == notPresent {
-				t.Errorf("#%d (%s): input shouldn't contain byte value %#02x", i, tc.desc, notPresent)
+			if notPresentBase <= x && x < notPresentBase+notPresentLen {
+				t.Errorf("#%d (%s): input shouldn't contain %#02x\ninput: % x", i, tc.desc, x, input)
 				continue loop
 			}
 		}
@@ -309,7 +317,7 @@ loop:
 		}
 
 		for j := range dBuf {
-			dBuf[j] = notPresent
+			dBuf[j] = byte(notPresentBase + j%notPresentLen)
 		}
 		g, gotErr := Decode(dBuf[:], input)
 		if got := string(g); got != tc.want || gotErr != tc.wantErr {
@@ -317,9 +325,13 @@ loop:
 				i, tc.desc, got, gotErr, tc.want, tc.wantErr)
 			continue
 		}
-		for _, x := range dBuf[dLen:] {
-			if x != notPresent {
-				t.Errorf("#%d (%s): dBuf[dLen:] should all be byte value %#02x", i, tc.desc, notPresent)
+		for j, x := range dBuf {
+			if uint64(j) < dLen {
+				continue
+			}
+			if w := byte(notPresentBase + j%notPresentLen); x != w {
+				t.Errorf("#%d (%s): Decode overrun: dBuf[%d] was modified: got %#02x, want %#02x\ndBuf: % x",
+					i, tc.desc, j, x, w, dBuf)
 				continue loop
 			}
 		}
@@ -333,19 +345,25 @@ func TestDecodeLengthOffset(t *testing.T) {
 		prefix = "abcdefghijklmnopqr"
 		suffix = "ABCDEFGHIJKLMNOPQR"
 
-		// notPresent is a byte value that is not present in either the input
-		// or the output. It is written to gotBuf to check that Decode does not
-		// write bytes past the end of gotBuf[:totalLen].
-		notPresent = 0xfe
+		// notPresentXxx defines a range of byte values [0xa0, 0xc5) that are
+		// not present in either the input or the output. It is written to
+		// gotBuf to check that Decode does not write bytes past the end of
+		// gotBuf[:totalLen].
+		//
+		// The magic number 37 was chosen because it is prime. A more 'natural'
+		// number like 32 might lead to a false negative if, for example, a
+		// byte was incorrectly copied 4*8 bytes later.
+		notPresentBase = 0xa0
+		notPresentLen  = 37
 	)
-	var gotBuf, wantBuf, inputBuf [256]byte
+	var gotBuf, wantBuf, inputBuf [128]byte
 	for length := 1; length <= 18; length++ {
 		for offset := 1; offset <= 18; offset++ {
 		loop:
 			for suffixLen := 0; suffixLen <= 18; suffixLen++ {
-				totalLen := uint64(len(prefix) + length + suffixLen)
+				totalLen := len(prefix) + length + suffixLen
 
-				inputLen := binary.PutUvarint(inputBuf[:], totalLen)
+				inputLen := binary.PutUvarint(inputBuf[:], uint64(totalLen))
 				inputBuf[inputLen] = tagLiteral + 4*byte(len(prefix)-1)
 				inputLen++
 				inputLen += copy(inputBuf[inputLen:], prefix)
@@ -361,7 +379,7 @@ func TestDecodeLengthOffset(t *testing.T) {
 				input := inputBuf[:inputLen]
 
 				for i := range gotBuf {
-					gotBuf[i] = notPresent
+					gotBuf[i] = byte(notPresentBase + i%notPresentLen)
 				}
 				got, err := Decode(gotBuf[:], input)
 				if err != nil {
@@ -379,23 +397,27 @@ func TestDecodeLengthOffset(t *testing.T) {
 				want := wantBuf[:wantLen]
 
 				for _, x := range input {
-					if x == notPresent {
-						t.Errorf("length=%d, offset=%d; suffixLen=%d: input shouldn't contain byte value %#02x",
-							length, offset, suffixLen, notPresent)
+					if notPresentBase <= x && x < notPresentBase+notPresentLen {
+						t.Errorf("length=%d, offset=%d; suffixLen=%d: input shouldn't contain %#02x\ninput: % x",
+							length, offset, suffixLen, x, input)
 						continue loop
 					}
 				}
-				for _, x := range gotBuf[totalLen:] {
-					if x != notPresent {
-						t.Errorf("length=%d, offset=%d; suffixLen=%d: gotBuf[totalLen:] should all be byte value %#02x",
-							length, offset, suffixLen, notPresent)
+				for i, x := range gotBuf {
+					if i < totalLen {
+						continue
+					}
+					if w := byte(notPresentBase + i%notPresentLen); x != w {
+						t.Errorf("length=%d, offset=%d; suffixLen=%d; totalLen=%d: "+
+							"Decode overrun: gotBuf[%d] was modified: got %#02x, want %#02x\ngotBuf: % x",
+							length, offset, suffixLen, totalLen, i, x, w, gotBuf)
 						continue loop
 					}
 				}
 				for _, x := range want {
-					if x == notPresent {
-						t.Errorf("length=%d, offset=%d; suffixLen=%d: want shouldn't contain byte value %#02x",
-							length, offset, suffixLen, notPresent)
+					if notPresentBase <= x && x < notPresentBase+notPresentLen {
+						t.Errorf("length=%d, offset=%d; suffixLen=%d: want shouldn't contain %#02x\nwant: % x",
+							length, offset, suffixLen, x, want)
 						continue loop
 					}
 				}
