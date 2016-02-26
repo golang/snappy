@@ -43,6 +43,12 @@ func decodedLen(src []byte) (blockLen, headerLen int, err error) {
 	return int(v), n, nil
 }
 
+const (
+	decodeErrCodeCorrupt                  = 1
+	decodeErrCodeUnsupportedLiteralLength = 2
+	decodeErrCodeUnsupportedCopy4Tag      = 3
+)
+
 // Decode returns the decoded form of src. The returned slice may be a sub-
 // slice of dst if dst was large enough to hold the entire decoded block.
 // Otherwise, a newly allocated slice will be returned.
@@ -58,88 +64,15 @@ func Decode(dst, src []byte) ([]byte, error) {
 	} else {
 		dst = make([]byte, dLen)
 	}
-
-	var d, offset, length int
-	for s < len(src) {
-		switch src[s] & 0x03 {
-		case tagLiteral:
-			x := uint32(src[s] >> 2)
-			switch {
-			case x < 60:
-				s++
-			case x == 60:
-				s += 2
-				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
-					return nil, ErrCorrupt
-				}
-				x = uint32(src[s-1])
-			case x == 61:
-				s += 3
-				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
-					return nil, ErrCorrupt
-				}
-				x = uint32(src[s-2]) | uint32(src[s-1])<<8
-			case x == 62:
-				s += 4
-				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
-					return nil, ErrCorrupt
-				}
-				x = uint32(src[s-3]) | uint32(src[s-2])<<8 | uint32(src[s-1])<<16
-			case x == 63:
-				s += 5
-				if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
-					return nil, ErrCorrupt
-				}
-				x = uint32(src[s-4]) | uint32(src[s-3])<<8 | uint32(src[s-2])<<16 | uint32(src[s-1])<<24
-			}
-			length = int(x) + 1
-			if length <= 0 {
-				return nil, errUnsupportedLiteralLength
-			}
-			if length > len(dst)-d || length > len(src)-s {
-				return nil, ErrCorrupt
-			}
-			copy(dst[d:], src[s:s+length])
-			d += length
-			s += length
-			continue
-
-		case tagCopy1:
-			s += 2
-			if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
-				return nil, ErrCorrupt
-			}
-			length = 4 + int(src[s-2])>>2&0x7
-			offset = int(src[s-2])&0xe0<<3 | int(src[s-1])
-
-		case tagCopy2:
-			s += 3
-			if uint(s) > uint(len(src)) { // The uint conversions catch overflow from the previous line.
-				return nil, ErrCorrupt
-			}
-			length = 1 + int(src[s-3])>>2
-			offset = int(src[s-2]) | int(src[s-1])<<8
-
-		case tagCopy4:
-			return nil, errUnsupportedCopy4Tag
-		}
-
-		if offset <= 0 || d < offset || length > len(dst)-d {
-			return nil, ErrCorrupt
-		}
-		// Copy from an earlier sub-slice of dst to a later sub-slice. Unlike
-		// the built-in copy function, this byte-by-byte copy always runs
-		// forwards, even if the slices overlap. Conceptually, this is:
-		//
-		// d += forwardCopy(dst[d:d+length], dst[d-offset:])
-		for end := d + length; d != end; d++ {
-			dst[d] = dst[d-offset]
-		}
+	switch decode(dst, src[s:]) {
+	case 0:
+		return dst, nil
+	case decodeErrCodeUnsupportedLiteralLength:
+		return nil, errUnsupportedLiteralLength
+	case decodeErrCodeUnsupportedCopy4Tag:
+		return nil, errUnsupportedCopy4Tag
 	}
-	if d != dLen {
-		return nil, ErrCorrupt
-	}
-	return dst[:d], nil
+	return nil, ErrCorrupt
 }
 
 // NewReader returns a new Reader that decompresses from r, using the framing
