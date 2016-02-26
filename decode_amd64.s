@@ -318,17 +318,113 @@ doCopy:
 	// copy 16 bytes
 	// d += length
 	CMPQ CX, $16
-	JGT  verySlowForwardCopy
+	JGT  slowForwardCopy
 	CMPQ DX, $8
-	JLT  verySlowForwardCopy
+	JLT  slowForwardCopy
 	CMPQ R14, $16
-	JLT  verySlowForwardCopy
+	JLT  slowForwardCopy
 	MOVQ 0(R15), AX
 	MOVQ AX, 0(DI)
 	MOVQ 8(R15), BX
 	MOVQ BX, 8(DI)
 	ADDQ CX, DI
 	JMP  loop
+
+slowForwardCopy:
+	// !!! If the forward copy is longer than 16 bytes, or if offset < 8, we
+	// can still try 8-byte load stores, provided we can overrun up to 10 extra
+	// bytes. As above, the overrun will be fixed up by subsequent iterations
+	// of the outermost loop.
+	//
+	// The C++ snappy code calls this technique IncrementalCopyFastPath. Its
+	// commentary says:
+	//
+	// ----
+	//
+	// The main part of this loop is a simple copy of eight bytes at a time
+	// until we've copied (at least) the requested amount of bytes.  However,
+	// if d and d-offset are less than eight bytes apart (indicating a
+	// repeating pattern of length < 8), we first need to expand the pattern in
+	// order to get the correct results. For instance, if the buffer looks like
+	// this, with the eight-byte <d-offset> and <d> patterns marked as
+	// intervals:
+	//
+	//    abxxxxxxxxxxxx
+	//    [------]           d-offset
+	//      [------]         d
+	//
+	// a single eight-byte copy from <d-offset> to <d> will repeat the pattern
+	// once, after which we can move <d> two bytes without moving <d-offset>:
+	//
+	//    ababxxxxxxxxxx
+	//    [------]           d-offset
+	//        [------]       d
+	//
+	// and repeat the exercise until the two no longer overlap.
+	//
+	// This allows us to do very well in the special case of one single byte
+	// repeated many times, without taking a big hit for more general cases.
+	//
+	// The worst case of extra writing past the end of the match occurs when
+	// offset == 1 and length == 1; the last copy will read from byte positions
+	// [0..7] and write to [4..11], whereas it was only supposed to write to
+	// position 1. Thus, ten excess bytes.
+	//
+	// ----
+	//
+	// That "10 byte overrun" worst case is confirmed by Go's
+	// TestSlowForwardCopyOverrun, which also tests the fixUpSlowForwardCopy
+	// and finishSlowForwardCopy algorithm.
+	//
+	// if length > len(dst)-d-10 {
+	//   goto verySlowForwardCopy
+	// }
+	SUBQ $10, R14
+	CMPQ CX, R14
+	JGT  verySlowForwardCopy
+
+makeOffsetAtLeast8:
+	// !!! As above, expand the pattern so that offset >= 8 and we can use
+	// 8-byte load/stores.
+	//
+	// for offset < 8 {
+	//   copy 8 bytes from dst[d-offset:] to dst[d:]
+	//   length -= offset
+	//   d      += offset
+	//   offset += offset
+	//   // The two previous lines together means that d-offset, and therefore
+	//   // R15, is unchanged.
+	// }
+	CMPQ DX, $8
+	JGE  fixUpSlowForwardCopy
+	MOVQ (R15), BX
+	MOVQ BX, (DI)
+	SUBQ DX, CX
+	ADDQ DX, DI
+	ADDQ DX, DX
+	JMP  makeOffsetAtLeast8
+
+fixUpSlowForwardCopy:
+	// !!! Add length (which might be negative now) to d (implied by DI being
+	// &dst[d]) so that d ends up at the right place when we jump back to the
+	// top of the loop. Before we do that, though, we save DI to AX so that, if
+	// length is positive, copying the remaining length bytes will write to the
+	// right place.
+	MOVQ DI, AX
+	ADDQ CX, DI
+
+finishSlowForwardCopy:
+	// !!! Repeat 8-byte load/stores until length <= 0. Ending with a negative
+	// length means that we overrun, but as above, that will be fixed up by
+	// subsequent iterations of the outermost loop.
+	CMPQ CX, $0
+	JLE  loop
+	MOVQ (R15), BX
+	MOVQ BX, (AX)
+	ADDQ $8, R15
+	ADDQ $8, AX
+	SUBQ $8, CX
+	JMP  finishSlowForwardCopy
 
 verySlowForwardCopy:
 	// verySlowForwardCopy is a simple implementation of forward copy. In C

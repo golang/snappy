@@ -450,6 +450,51 @@ func TestDecodeGoldenInput(t *testing.T) {
 	}
 }
 
+// TestSlowForwardCopyOverrun tests the "expand the pattern" algorithm
+// described in decode_amd64.s and its claim of a 10 byte overrun worst case.
+func TestSlowForwardCopyOverrun(t *testing.T) {
+	const base = 100
+
+	for length := 1; length < 18; length++ {
+		for offset := 1; offset < 18; offset++ {
+			highWaterMark := base
+			d := base
+			l := length
+			o := offset
+
+			// makeOffsetAtLeast8
+			for o < 8 {
+				if end := d + 8; highWaterMark < end {
+					highWaterMark = end
+				}
+				l -= o
+				d += o
+				o += o
+			}
+
+			// fixUpSlowForwardCopy
+			a := d
+			d += l
+
+			// finishSlowForwardCopy
+			for l > 0 {
+				if end := a + 8; highWaterMark < end {
+					highWaterMark = end
+				}
+				a += 8
+				l -= 8
+			}
+
+			dWant := base + length
+			overrun := highWaterMark - dWant
+			if d != dWant || overrun < 0 || 10 < overrun {
+				t.Errorf("length=%d, offset=%d: d and overrun: got (%d, %d), want (%d, something in [0, 10])",
+					length, offset, d, overrun, dWant)
+			}
+		}
+	}
+}
+
 // TestEncodeNoiseThenRepeats encodes input for which the first half is very
 // incompressible and the second half is very compressible. The encoded form's
 // length should be closer to 50% of the original length than 100%.
