@@ -23,7 +23,7 @@
 //	+ R11	src_base
 //	+ R12	src_len
 //	+ R13	src_base + src_len
-//	- R14	unused
+//	- R14	used by doCopy
 //	- R15	used by doCopy
 //
 // The registers R8-R13 (marked with a "+") are set at the start of the
@@ -299,9 +299,36 @@ doCopy:
 	// forwardCopy(dst[d:d+length], dst[d-offset:]); d += length
 	//
 	// Set:
+	//	- R14 = len(dst)-d
 	//	- R15 = &dst[d-offset]
+	MOVQ R10, R14
+	SUBQ DI, R14
 	MOVQ DI, R15
 	SUBQ DX, R15
+
+	// !!! Try a faster technique for short (16 or fewer bytes) forward copies.
+	//
+	// First, try using two 8-byte load/stores, similar to the doLit technique
+	// above. Even if dst[d:d+length] and dst[d-offset:] can overlap, this is
+	// still OK if offset >= 8.
+	//
+	// if length > 16 || offset < 8 || len(dst)-d < 16 {
+	//   goto slowForwardCopy
+	// }
+	// copy 16 bytes
+	// d += length
+	CMPQ CX, $16
+	JGT  verySlowForwardCopy
+	CMPQ DX, $8
+	JLT  verySlowForwardCopy
+	CMPQ R14, $16
+	JLT  verySlowForwardCopy
+	MOVQ 0(R15), AX
+	MOVQ AX, 0(DI)
+	MOVQ 8(R15), BX
+	MOVQ BX, 8(DI)
+	ADDQ CX, DI
+	JMP  loop
 
 verySlowForwardCopy:
 	// verySlowForwardCopy is a simple implementation of forward copy. In C
