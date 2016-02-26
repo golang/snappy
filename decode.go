@@ -127,6 +127,11 @@ func Decode(dst, src []byte) ([]byte, error) {
 		if offset <= 0 || d < offset || length > len(dst)-d {
 			return nil, ErrCorrupt
 		}
+		// Copy from an earlier sub-slice of dst to a later sub-slice. Unlike
+		// the built-in copy function, this byte-by-byte copy always runs
+		// forwards, even if the slices overlap. Conceptually, this is:
+		//
+		// d += forwardCopy(dst[d:d+length], dst[d-offset:])
 		for end := d + length; d != end; d++ {
 			dst[d] = dst[d-offset]
 		}
