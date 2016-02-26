@@ -94,6 +94,47 @@ doLit:
 	MOVQ R13, BX
 	SUBQ SI, BX
 
+	// !!! Try a faster technique for short (16 or fewer bytes) copies.
+	//
+	// if length > 16 || len(dst)-d < 16 || len(src)-s < 16 {
+	//   goto callMemmove // Fall back on calling runtime·memmove.
+	// }
+	//
+	// The C++ snappy code calls this TryFastAppend. It also checks len(src)-s
+	// against 21 instead of 16, because it cannot assume that all of its input
+	// is contiguous in memory and so it needs to leave enough source bytes to
+	// read the next tag without refilling buffers, but Go's Decode assumes
+	// contiguousness (the src argument is a []byte).
+	CMPQ CX, $16
+	JGT  callMemmove
+	CMPQ AX, $16
+	JLT  callMemmove
+	CMPQ BX, $16
+	JLT  callMemmove
+
+	// !!! Implement the copy from src to dst as two 8-byte loads and stores.
+	// (Decode's documentation says that dst and src must not overlap.)
+	//
+	// This always copies 16 bytes, instead of only length bytes, but that's
+	// OK. If the input is a valid Snappy encoding then subsequent iterations
+	// will fix up the overrun. Otherwise, Decode returns a nil []byte (and a
+	// non-nil error), so the overrun will be ignored.
+	//
+	// Note that on amd64, it is legal and cheap to issue unaligned 8-byte
+	// loads and stores. This technique probably wouldn't be as effective on
+	// architectures that are fussier about alignment.
+	MOVQ 0(SI), AX
+	MOVQ AX, 0(DI)
+	MOVQ 8(SI), BX
+	MOVQ BX, 8(DI)
+
+	// d += length
+	// s += length
+	ADDQ CX, DI
+	ADDQ CX, SI
+	JMP  loop
+
+callMemmove:
 	// if length > len(dst)-d || length > len(src)-s { etc }
 	CMPQ CX, AX
 	JGT  errCorrupt
