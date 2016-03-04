@@ -112,7 +112,7 @@ doLit:
 	CMPQ BX, $16
 	JLT  callMemmove
 
-	// !!! Implement the copy from src to dst as two 8-byte loads and stores.
+	// !!! Implement the copy from src to dst as a 16-byte load and store.
 	// (Decode's documentation says that dst and src must not overlap.)
 	//
 	// This always copies 16 bytes, instead of only length bytes, but that's
@@ -120,13 +120,11 @@ doLit:
 	// will fix up the overrun. Otherwise, Decode returns a nil []byte (and a
 	// non-nil error), so the overrun will be ignored.
 	//
-	// Note that on amd64, it is legal and cheap to issue unaligned 8-byte
-	// loads and stores. This technique probably wouldn't be as effective on
-	// architectures that are fussier about alignment.
-	MOVQ 0(SI), AX
-	MOVQ AX, 0(DI)
-	MOVQ 8(SI), BX
-	MOVQ BX, 8(DI)
+	// Note that on amd64, it is legal and cheap to issue unaligned 8-byte or
+	// 16-byte loads and stores. This technique probably wouldn't be as
+	// effective on architectures that are fussier about alignment.
+	MOVOU 0(SI), X0
+	MOVOU X0, 0(DI)
 
 	// d += length
 	// s += length
@@ -310,7 +308,9 @@ doCopy:
 	//
 	// First, try using two 8-byte load/stores, similar to the doLit technique
 	// above. Even if dst[d:d+length] and dst[d-offset:] can overlap, this is
-	// still OK if offset >= 8.
+	// still OK if offset >= 8. Note that this has to be two 8-byte load/stores
+	// and not one 16-byte load/store, and the first store has to be before the
+	// second load, due to the overlap if offset is in the range [8, 16).
 	//
 	// if length > 16 || offset < 8 || len(dst)-d < 16 {
 	//   goto slowForwardCopy
