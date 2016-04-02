@@ -553,20 +553,36 @@ func TestWriterGoldenOutput(t *testing.T) {
 	defer w.Close()
 	w.Write([]byte("abcd")) // Not compressible.
 	w.Flush()
-	w.Write(bytes.Repeat([]byte{'A'}, 100)) // Compressible.
+	w.Write(bytes.Repeat([]byte{'A'}, 150)) // Compressible.
 	w.Flush()
+	// The next chunk is also compressible, but a naive, greedy encoding of the
+	// overall length 67 copy as a length 64 copy (the longest expressible as a
+	// tagCopy1 or tagCopy2) plus a length 3 remainder would be two 3-byte
+	// tagCopy2 tags (6 bytes), since the minimum length for a tagCopy1 is 4
+	// bytes. Instead, we could do it shorter, in 5 bytes: a 3-byte tagCopy2
+	// (of length 60) and a 2-byte tagCopy1 (of length 7).
+	w.Write(bytes.Repeat([]byte{'B'}, 68))
+	w.Flush()
+
 	got := buf.String()
 	want := strings.Join([]string{
 		magicChunk,
 		"\x01\x08\x00\x00", // Uncompressed chunk, 8 bytes long (including 4 byte checksum).
 		"\x68\x10\xe6\xb6", // Checksum.
 		"\x61\x62\x63\x64", // Uncompressed payload: "abcd".
-		"\x00\x0d\x00\x00", // Compressed chunk, 13 bytes long (including 4 byte checksum).
-		"\x37\xcb\xbc\x9d", // Checksum.
-		"\x64",             // Compressed payload: Uncompressed length (varint encoded): 100.
+		"\x00\x11\x00\x00", // Compressed chunk, 17 bytes long (including 4 byte checksum).
+		"\x5f\xeb\xf2\x10", // Checksum.
+		"\x96\x01",         // Compressed payload: Uncompressed length (varint encoded): 150.
 		"\x00\x41",         // Compressed payload: tagLiteral, length=1, "A".
 		"\xfe\x01\x00",     // Compressed payload: tagCopy2,   length=64, offset=1.
-		"\x8a\x01\x00",     // Compressed payload: tagCopy2,   length=35, offset=1.
+		"\xfe\x01\x00",     // Compressed payload: tagCopy2,   length=64, offset=1.
+		"\x52\x01\x00",     // Compressed payload: tagCopy2,   length=21, offset=1.
+		"\x00\x0c\x00\x00", // Compressed chunk, 12 bytes long (including 4 byte checksum).
+		"\x27\x50\xe4\x4e", // Checksum.
+		"\x44",             // Compressed payload: Uncompressed length (varint encoded): 68.
+		"\x00\x42",         // Compressed payload: tagLiteral, length=1, "B".
+		"\xee\x01\x00",     // Compressed payload: tagCopy2,   length=60, offset=1.
+		"\x0d\x01",         // Compressed payload: tagCopy1,   length=7, offset=1.
 	}, "")
 	if got != want {
 		t.Fatalf("\ngot:  % x\nwant: % x", got, want)

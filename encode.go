@@ -55,26 +55,42 @@ func emitLiteral(dst, lit []byte) int {
 // emitCopy writes a copy chunk and returns the number of bytes written.
 func emitCopy(dst []byte, offset, length int32) int {
 	i := 0
-	for length > 0 {
-		x := length - 4
-		if 0 <= x && x < 1<<3 && offset < 1<<11 {
-			dst[i+0] = uint8(offset>>8)&0x07<<5 | uint8(x)<<2 | tagCopy1
-			dst[i+1] = uint8(offset)
-			i += 2
-			break
-		}
-
-		x = length
-		if x > 1<<6 {
-			x = 1 << 6
-		}
-		dst[i+0] = uint8(x-1)<<2 | tagCopy2
+	// The maximum length for a single tagCopy1 or tagCopy2 op is 64 bytes. The
+	// threshold for this loop is a little higher (at 68 = 64 + 4), and the
+	// length emitted down below is is a little lower (at 60 = 64 - 4), because
+	// it's shorter to encode a length 67 copy as a length 60 tagCopy2 followed
+	// by a length 7 tagCopy1 (which encodes as 3+2 bytes) than to encode it as
+	// a length 64 tagCopy2 followed by a length 3 tagCopy2 (which encodes as
+	// 3+3 bytes). The magic 4 in the 64±4 is because the minimum length for a
+	// tagCopy1 op is 4 bytes, which is why a length 3 copy has to be an
+	// encodes-as-3-bytes tagCopy2 instead of an encodes-as-2-bytes tagCopy1.
+	for length >= 68 {
+		// Emit a length 64 copy, encoded as 3 bytes.
+		dst[i+0] = 63<<2 | tagCopy2
 		dst[i+1] = uint8(offset)
 		dst[i+2] = uint8(offset >> 8)
 		i += 3
-		length -= x
+		length -= 64
 	}
-	return i
+	if length > 64 {
+		// Emit a length 60 copy, encoded as 3 bytes.
+		dst[i+0] = 59<<2 | tagCopy2
+		dst[i+1] = uint8(offset)
+		dst[i+2] = uint8(offset >> 8)
+		i += 3
+		length -= 60
+	}
+	if length >= 12 || offset >= 2048 {
+		// Emit the remaining copy, encoded as 3 bytes.
+		dst[i+0] = uint8(length-1)<<2 | tagCopy2
+		dst[i+1] = uint8(offset)
+		dst[i+2] = uint8(offset >> 8)
+		return i + 3
+	}
+	// Emit the remaining copy, encoded as 2 bytes.
+	dst[i+0] = uint8(offset>>8)<<5 | uint8(length-4)<<2 | tagCopy1
+	dst[i+1] = uint8(offset)
+	return i + 2
 }
 
 // Encode returns the encoded form of src. The returned slice may be a sub-
