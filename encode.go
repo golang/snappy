@@ -119,10 +119,35 @@ func Encode(dst, src []byte) []byte {
 		if len(p) > maxBlockSize {
 			p, src = p[:maxBlockSize], p[maxBlockSize:]
 		}
-		d += encodeBlock(dst[d:], p)
+		if len(p) < minBlockSize {
+			d += emitLiteral(dst[d:], p)
+		} else {
+			d += encodeBlock(dst[d:], p)
+		}
 	}
 	return dst[:d]
 }
+
+// inputMargin is the minimum number of extra input bytes to keep, inside
+// encodeBlock's inner loop. On some architectures, this margin lets us
+// implement a fast path for emitLiteral, where the copy of short (<= 16 byte)
+// literals can be implemented as a single load to and store from a 16-byte
+// register. That literal's actual length can be as short as 1 byte, so this
+// can copy up to 15 bytes too much, but that's OK as subsequent iterations of
+// the encoding loop will fix up the copy overrun, and this inputMargin ensures
+// that we don't overrun the dst and src buffers.
+//
+// TODO: implement this fast path.
+//
+// TODO: actually use inputMargin inside encodeBlock.
+const inputMargin = 16 - 1
+
+// minBlockSize is the minimum size of the input to encodeBlock. As above, we
+// want any emitLiteral calls inside encodeBlock's inner loop to use the fast
+// path if possible, which requires being able to overrun by inputMargin bytes.
+//
+// TODO: can we make this bound a little tighter, raising it by 1 or 2?
+const minBlockSize = inputMargin
 
 // encodeBlock encodes a non-empty src to a guaranteed-large-enough dst. It
 // assumes that the varint-encoded length of the decompressed bytes has already
@@ -130,13 +155,8 @@ func Encode(dst, src []byte) []byte {
 //
 // It also assumes that:
 //	len(dst) >= MaxEncodedLen(len(src)) &&
-// 	0 < len(src) && len(src) <= maxBlockSize
+// 	minBlockSize <= len(src) && len(src) <= maxBlockSize
 func encodeBlock(dst, src []byte) (d int) {
-	// Return early if src is short.
-	if len(src) <= 4 {
-		return emitLiteral(dst, src)
-	}
-
 	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
 	const maxTableSize = 1 << 14
 	shift, tableSize := uint(32-8), 1<<8
