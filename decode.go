@@ -195,6 +195,10 @@ func (r *Reader) Read(p []byte) (int, error) {
 			checksum := uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24
 			// Read directly into r.decoded instead of via r.buf.
 			n := chunkLen - checksumSize
+			if n > len(r.decoded) {
+				r.err = ErrCorrupt
+				return 0, r.err
+			}
 			if !r.readFull(r.decoded[:n]) {
 				return 0, r.err
 			}

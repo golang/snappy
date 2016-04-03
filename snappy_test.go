@@ -725,6 +725,20 @@ func TestFlush(t *testing.T) {
 	}
 }
 
+func TestReaderUncompressedDataTooLong(t *testing.T) {
+	// https://github.com/google/snappy/blob/master/framing_format.txt section
+	// 4.3 says that "the maximum legal chunk length... is 65540", or 0x10004.
+	const n = 0x10005
+
+	r := NewReader(strings.NewReader(magicChunk +
+		"\x01\x05\x00\x01" + // Uncompressed chunk, n bytes long.
+		strings.Repeat("\x00", n),
+	))
+	if _, err := ioutil.ReadAll(r); err != ErrCorrupt {
+		t.Fatalf("got %v, want %v", err, ErrCorrupt)
+	}
+}
+
 func TestReaderReset(t *testing.T) {
 	gold := bytes.Repeat([]byte("All that is gold does not glitter,\n"), 10000)
 	buf := new(bytes.Buffer)
