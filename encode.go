@@ -14,9 +14,15 @@ import (
 // code.
 const maxOffset = 1 << 15
 
-func load32(b []byte, i int32) uint32 {
+func load32(b []byte, i int) uint32 {
 	b = b[i : i+4 : len(b)] // Help the compiler eliminate bounds checks on the next line.
 	return uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24
+}
+
+func load64(b []byte, i int) uint64 {
+	b = b[i : i+8 : len(b)] // Help the compiler eliminate bounds checks on the next line.
+	return uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
+		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56
 }
 
 // emitLiteral writes a literal chunk and returns the number of bytes written.
@@ -58,7 +64,7 @@ func emitLiteral(dst, lit []byte) int {
 }
 
 // emitCopy writes a copy chunk and returns the number of bytes written.
-func emitCopy(dst []byte, offset, length int32) int {
+func emitCopy(dst []byte, offset, length int) int {
 	i := 0
 	// The maximum length for a single tagCopy1 or tagCopy2 op is 64 bytes. The
 	// threshold for this loop is a little higher (at 68 = 64 + 4), and the
@@ -138,8 +144,6 @@ func Encode(dst, src []byte) []byte {
 // that we don't overrun the dst and src buffers.
 //
 // TODO: implement this fast path.
-//
-// TODO: actually use inputMargin inside encodeBlock.
 const inputMargin = 16 - 1
 
 // minBlockSize is the minimum size of the input to encodeBlock. As above, we
@@ -148,6 +152,10 @@ const inputMargin = 16 - 1
 //
 // TODO: can we make this bound a little tighter, raising it by 1 or 2?
 const minBlockSize = inputMargin
+
+func hash(u, shift uint32) uint32 {
+	return (u * 0x1e35a7bd) >> shift
+}
 
 // encodeBlock encodes a non-empty src to a guaranteed-large-enough dst. It
 // assumes that the varint-encoded length of the decompressed bytes has already
@@ -159,19 +167,27 @@ const minBlockSize = inputMargin
 func encodeBlock(dst, src []byte) (d int) {
 	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
 	const maxTableSize = 1 << 14
-	shift, tableSize := uint(32-8), 1<<8
+	shift, tableSize := uint32(32-8), 1<<8
 	for tableSize < maxTableSize && tableSize < len(src) {
 		shift--
 		tableSize *= 2
 	}
 	var table [maxTableSize]int32
 
-	// Iterate over the source bytes.
-	var (
-		s   int32 // The iterator position.
-		t   int32 // The last position with the same hash as s.
-		lit int32 // The start position of any pending literal bytes.
+	// sLimit is when to stop looking for offset/length copies. The inputMargin
+	// lets us use a fast path for emitLiteral in the main loop, while we are
+	// looking for copies.
+	sLimit := len(src) - inputMargin
 
+	// nextEmit is where in src the next emitLiteral should start from.
+	nextEmit := 0
+
+	// The encoded form must start with a literal, as there are no previous
+	// bytes to copy, so we start looking for hash matches at s == 1.
+	s := 1
+	nextHash := hash(load32(src, s), shift)
+
+	for {
 		// Copied from the C++ snappy implementation:
 		//
 		// Heuristic match skipping: If 32 bytes are scanned with no matches
@@ -186,43 +202,74 @@ func encodeBlock(dst, src []byte) (d int) {
 		// The "skip" variable keeps track of how many bytes there are since
 		// the last match; dividing it by 32 (ie. right-shifting by five) gives
 		// the number of bytes to move ahead for each iteration.
-		skip uint32 = 32
-	)
-	for uint32(s+3) < uint32(len(src)) { // The uint32 conversions catch overflow from the +3.
-		// Update the hash table.
-		h := load32(src, s)
-		p := &table[(h*0x1e35a7bd)>>shift]
-		// We need to to store values in [-1, inf) in table. To save
-		// some initialization time, (re)use the table's zero value
-		// and shift the values against this zero: add 1 on writes,
-		// subtract 1 on reads.
-		t, *p = *p-1, s+1
-		// If t is invalid or src[s:s+4] differs from src[t:t+4], accumulate a literal byte.
-		if t < 0 || s-t >= maxOffset || h != load32(src, t) {
-			s += int32(skip >> 5)
+		skip := 32
+
+		nextS := s
+		candidate := 0
+		for {
+			s = nextS
+			nextS = s + skip>>5
 			skip++
-			continue
+			if nextS > sLimit {
+				goto emitRemainder
+			}
+			candidate = int(table[nextHash])
+			table[nextHash] = int32(s)
+			nextHash = hash(load32(src, nextS), shift)
+			if load32(src, s) == load32(src, candidate) {
+				break
+			}
 		}
-		skip = 32
-		// Otherwise, we have a match. First, emit any pending literal bytes.
-		if lit != s {
-			d += emitLiteral(dst[d:], src[lit:s])
+
+		// A 4-byte match has been found. We'll later see if more than 4 bytes
+		// match. But, prior to the match, src[nextEmit:s] are unmatched. Emit
+		// them as literal bytes.
+		d += emitLiteral(dst[d:], src[nextEmit:s])
+
+		// Call emitCopy, and then see if another emitCopy could be our next
+		// move. Repeat until we find no match for the input immediately after
+		// what was consumed by the last emitCopy call.
+		//
+		// If we exit this loop normally then we need to call emitLiteral next,
+		// though we don't yet know how big the literal will be. We handle that
+		// by proceeding to the next iteration of the main loop. We also can
+		// exit this loop via goto if we get close to exhausting the input.
+		for {
+			// Invariant: we have a 4-byte match at s, and no need to emit any
+			// literal bytes prior to s.
+			base := s
+			s += 4
+			for i := candidate + 4; s < len(src) && src[i] == src[s]; i, s = i+1, s+1 {
+			}
+			d += emitCopy(dst[d:], base-candidate, s-base)
+			nextEmit = s
+			if s >= sLimit {
+				goto emitRemainder
+			}
+
+			// We could immediately start working at s now, but to improve
+			// compression we first update the hash table at s-1 and at s. If
+			// another emitCopy is not our next move, also calculate nextHash
+			// at s+1. At least on GOARCH=amd64, these three hash calculations
+			// are faster as one load64 call (with some shifts) instead of
+			// three load32 calls.
+			x := load64(src, s-1)
+			prevHash := hash(uint32(x>>0), shift)
+			table[prevHash] = int32(s - 1)
+			currHash := hash(uint32(x>>8), shift)
+			candidate = int(table[currHash])
+			table[currHash] = int32(s)
+			if uint32(x>>8) != load32(src, candidate) {
+				nextHash = hash(uint32(x>>16), shift)
+				s++
+				break
+			}
 		}
-		// Extend the match to be as long as possible.
-		s0 := s
-		s, t = s+4, t+4
-		for int(s) < len(src) && src[s] == src[t] {
-			s++
-			t++
-		}
-		// Emit the copied bytes.
-		d += emitCopy(dst[d:], s-t, s-s0)
-		lit = s
 	}
 
-	// Emit any final pending literal bytes and return.
-	if int(lit) != len(src) {
-		d += emitLiteral(dst[d:], src[lit:])
+emitRemainder:
+	if nextEmit < len(src) {
+		d += emitLiteral(dst[d:], src[nextEmit:])
 	}
 	return d
 }
