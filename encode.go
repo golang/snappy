@@ -160,6 +160,9 @@ const inputMargin = 16 - 1
 //
 // The C++ code doesn't use this exact threshold, but it could, as discussed at
 // https://groups.google.com/d/topic/snappy-compression/oGbhsdIJSJ8/discussion
+// The difference between Go (2+inputMargin) and C++ (inputMargin) is purely an
+// optimization. It should not affect the encoded form. This is tested by
+// TestSameEncodingAsCppShortCopies.
 const minNonLiteralBlockSize = 1 + 1 + inputMargin
 
 func hash(u, shift uint32) uint32 {
