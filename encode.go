@@ -125,7 +125,7 @@ func Encode(dst, src []byte) []byte {
 		if len(p) > maxBlockSize {
 			p, src = p[:maxBlockSize], p[maxBlockSize:]
 		}
-		if len(p) < minBlockSize {
+		if len(p) < minNonLiteralBlockSize {
 			d += emitLiteral(dst[d:], p)
 		} else {
 			d += encodeBlock(dst[d:], p)
@@ -146,12 +146,21 @@ func Encode(dst, src []byte) []byte {
 // TODO: implement this fast path.
 const inputMargin = 16 - 1
 
-// minBlockSize is the minimum size of the input to encodeBlock. As above, we
-// want any emitLiteral calls inside encodeBlock's inner loop to use the fast
-// path if possible, which requires being able to overrun by inputMargin bytes.
+// minNonLiteralBlockSize is the minimum size of the input to encodeBlock that
+// could be encoded with a copy tag. This is the minimum with respect to the
+// algorithm used by encodeBlock, not a minimum enforced by the file format.
 //
-// TODO: can we make this bound a little tighter, raising it by 1 or 2?
-const minBlockSize = inputMargin
+// The encoded output must start with at least a 1 byte literal, as there are
+// no previous bytes to copy. A minimal (1 byte) copy after that, generated
+// from an emitCopy call in encodeBlock's main loop, would require at least
+// another inputMargin bytes, for the reason above: we want any emitLiteral
+// calls inside encodeBlock's main loop to use the fast path if possible, which
+// requires being able to overrun by inputMargin bytes. Thus,
+// minNonLiteralBlockSize equals 1 + 1 + inputMargin.
+//
+// The C++ code doesn't use this exact threshold, but it could, as discussed at
+// https://groups.google.com/d/topic/snappy-compression/oGbhsdIJSJ8/discussion
+const minNonLiteralBlockSize = 1 + 1 + inputMargin
 
 func hash(u, shift uint32) uint32 {
 	return (u * 0x1e35a7bd) >> shift
@@ -163,7 +172,7 @@ func hash(u, shift uint32) uint32 {
 //
 // It also assumes that:
 //	len(dst) >= MaxEncodedLen(len(src)) &&
-// 	minBlockSize <= len(src) && len(src) <= maxBlockSize
+// 	minNonLiteralBlockSize <= len(src) && len(src) <= maxBlockSize
 func encodeBlock(dst, src []byte) (d int) {
 	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
 	const maxTableSize = 1 << 14
