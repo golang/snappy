@@ -492,14 +492,45 @@ func TestEncodeGoldenInput(t *testing.T) {
 	}
 }
 
-func TestSameEncodingAsCpp(t *testing.T) {
+const snappytoolCmdName = "cmd/snappytool/snappytool"
+
+func skipTestSameEncodingAsCpp() (msg string) {
 	if !goEncoderShouldMatchCppEncoder {
-		t.Skipf("skipping testing that the encoding is byte-for-byte identical to C++: GOARCH=%s", runtime.GOARCH)
+		return fmt.Sprintf("skipping testing that the encoding is byte-for-byte identical to C++: GOARCH=%s", runtime.GOARCH)
 	}
-	const cmdName = "cmd/snappytool/snappytool"
-	_, err := os.Stat(cmdName)
+	if _, err := os.Stat(snappytoolCmdName); err != nil {
+		return fmt.Sprintf("could not find snappytool: %v", err)
+	}
+	return ""
+}
+
+func runTestSameEncodingAsCpp(src []byte) error {
+	got := Encode(nil, src)
+
+	cmd := exec.Command(snappytoolCmdName, "-e")
+	cmd.Stdin = bytes.NewReader(src)
+	want, err := cmd.Output()
 	if err != nil {
-		t.Skipf("could not find snappytool: %v", err)
+		return fmt.Errorf("could not run snappytool: %v", err)
+	}
+	return cmp(got, want)
+}
+
+func TestSameEncodingAsCppShortCopies(t *testing.T) {
+	if msg := skipTestSameEncodingAsCpp(); msg != "" {
+		t.Skip(msg)
+	}
+	src := bytes.Repeat([]byte{'a'}, 20)
+	for i := 0; i <= len(src); i++ {
+		if err := runTestSameEncodingAsCpp(src[:i]); err != nil {
+			t.Errorf("i=%d: %v", i, err)
+		}
+	}
+}
+
+func TestSameEncodingAsCppLongFiles(t *testing.T) {
+	if msg := skipTestSameEncodingAsCpp(); msg != "" {
+		t.Skip(msg)
 	}
 	for i, tf := range testFiles {
 		if err := downloadBenchmarkFiles(t, tf.filename); err != nil {
@@ -509,17 +540,7 @@ func TestSameEncodingAsCpp(t *testing.T) {
 		if n := tf.sizeLimit; 0 < n && n < len(data) {
 			data = data[:n]
 		}
-
-		got := Encode(nil, data)
-
-		cmd := exec.Command(cmdName, "-e")
-		cmd.Stdin = bytes.NewReader(data)
-		want, err := cmd.Output()
-		if err != nil {
-			t.Fatalf("could not run snappytool: %v", err)
-		}
-
-		if err := cmp(got, want); err != nil {
+		if err := runTestSameEncodingAsCpp(data); err != nil {
 			t.Errorf("i=%d: %v", i, err)
 		}
 	}
