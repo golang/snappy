@@ -204,12 +204,13 @@ func encodeBlock(dst, src []byte) (d int) {
 		//
 		// Heuristic match skipping: If 32 bytes are scanned with no matches
 		// found, start looking only at every other byte. If 32 more bytes are
-		// scanned, look at every third byte, etc.. When a match is found,
-		// immediately go back to looking at every byte. This is a small loss
-		// (~5% performance, ~0.1% density) for compressible data due to more
-		// bookkeeping, but for non-compressible data (such as JPEG) it's a
-		// huge win since the compressor quickly "realizes" the data is
-		// incompressible and doesn't bother looking for matches everywhere.
+		// scanned (or skipped), look at every third byte, etc.. When a match
+		// is found, immediately go back to looking at every byte. This is a
+		// small loss (~5% performance, ~0.1% density) for compressible data
+		// due to more bookkeeping, but for non-compressible data (such as
+		// JPEG) it's a huge win since the compressor quickly "realizes" the
+		// data is incompressible and doesn't bother looking for matches
+		// everywhere.
 		//
 		// The "skip" variable keeps track of how many bytes there are since
 		// the last match; dividing it by 32 (ie. right-shifting by five) gives
@@ -220,8 +221,9 @@ func encodeBlock(dst, src []byte) (d int) {
 		candidate := 0
 		for {
 			s = nextS
-			nextS = s + skip>>5
-			skip++
+			bytesBetweenHashLookups := skip >> 5
+			nextS = s + bytesBetweenHashLookups
+			skip += bytesBetweenHashLookups
 			if nextS > sLimit {
 				goto emitRemainder
 			}

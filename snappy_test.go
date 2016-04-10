@@ -459,6 +459,12 @@ func TestDecodeLengthOffset(t *testing.T) {
 	}
 }
 
+// TODO: pi.txt no longer compresses at all, after the Go code implemented the
+// same algorithmic change as the C++ code:
+// https://github.com/google/snappy/commit/d53de18799418e113e44444252a39b12a0e4e0cc
+//
+// We should use a more compressible test file.
+
 func TestDecodeGoldenInput(t *testing.T) {
 	src, err := ioutil.ReadFile("testdata/pi.txt.rawsnappy")
 	if err != nil {
@@ -532,6 +538,7 @@ func TestSameEncodingAsCppLongFiles(t *testing.T) {
 	if msg := skipTestSameEncodingAsCpp(); msg != "" {
 		t.Skip(msg)
 	}
+	failed := false
 	for i, tf := range testFiles {
 		if err := downloadBenchmarkFiles(t, tf.filename); err != nil {
 			t.Fatalf("failed to download testdata: %s", err)
@@ -542,7 +549,13 @@ func TestSameEncodingAsCppLongFiles(t *testing.T) {
 		}
 		if err := runTestSameEncodingAsCpp(data); err != nil {
 			t.Errorf("i=%d: %v", i, err)
+			failed = true
 		}
+	}
+	if failed {
+		t.Errorf("was the snappytool program built against the C++ snappy library version " +
+			"d53de187 or later, commited on 2016-04-05? See " +
+			"https://github.com/google/snappy/commit/d53de18799418e113e44444252a39b12a0e4e0cc")
 	}
 }
 
@@ -595,7 +608,7 @@ func TestSlowForwardCopyOverrun(t *testing.T) {
 // incompressible and the second half is very compressible. The encoded form's
 // length should be closer to 50% of the original length than 100%.
 func TestEncodeNoiseThenRepeats(t *testing.T) {
-	for _, origLen := range []int{32 * 1024, 256 * 1024, 2048 * 1024} {
+	for _, origLen := range []int{256 * 1024, 2048 * 1024} {
 		src := make([]byte, origLen)
 		rng := rand.New(rand.NewSource(1))
 		firstHalf, secondHalf := src[:origLen/2], src[origLen/2:]
