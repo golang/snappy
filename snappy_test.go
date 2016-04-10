@@ -459,14 +459,13 @@ func TestDecodeLengthOffset(t *testing.T) {
 	}
 }
 
-// TODO: pi.txt no longer compresses at all, after the Go code implemented the
-// same algorithmic change as the C++ code:
-// https://github.com/google/snappy/commit/d53de18799418e113e44444252a39b12a0e4e0cc
-//
-// We should use a more compressible test file.
+const (
+	goldenText       = "testdata/Mark.Twain-Tom.Sawyer.txt"
+	goldenCompressed = goldenText + ".rawsnappy"
+)
 
 func TestDecodeGoldenInput(t *testing.T) {
-	src, err := ioutil.ReadFile("testdata/pi.txt.rawsnappy")
+	src, err := ioutil.ReadFile(goldenCompressed)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -474,7 +473,7 @@ func TestDecodeGoldenInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	want, err := ioutil.ReadFile("testdata/pi.txt")
+	want, err := ioutil.ReadFile(goldenText)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -484,12 +483,12 @@ func TestDecodeGoldenInput(t *testing.T) {
 }
 
 func TestEncodeGoldenInput(t *testing.T) {
-	src, err := ioutil.ReadFile("testdata/pi.txt")
+	src, err := ioutil.ReadFile(goldenText)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	got := Encode(nil, src)
-	want, err := ioutil.ReadFile("testdata/pi.txt.rawsnappy")
+	want, err := ioutil.ReadFile(goldenCompressed)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
