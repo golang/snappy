@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"sync"
 )
 
 // maxOffset limits how far copy back-references can go, the same as the C++
@@ -104,12 +105,32 @@ func emitCopy(dst []byte, offset, length int) int {
 	return i + 2
 }
 
+var encPool = sync.Pool{New: func() interface{} { return &encoder{cur: maxBlockSize} }}
+
+const (
+	tableBits = 14             // Bits used in the table
+	tableSize = 1 << tableBits // Size of the table
+)
+
+type encoder struct {
+	table [tableSize]int32
+	// cur is bigger than every element of table.
+	cur int32
+}
+
 // Encode returns the encoded form of src. The returned slice may be a sub-
 // slice of dst if dst was large enough to hold the entire encoded block.
 // Otherwise, a newly allocated slice will be returned.
 //
 // It is valid to pass a nil dst.
 func Encode(dst, src []byte) []byte {
+	e := encPool.Get().(*encoder)
+	dst = e.encode(dst, src)
+	encPool.Put(e)
+	return dst
+}
+
+func (e *encoder) encode(dst, src []byte) []byte {
 	if n := MaxEncodedLen(len(src)); n < 0 {
 		panic(ErrTooLarge)
 	} else if len(dst) < n {
@@ -128,7 +149,7 @@ func Encode(dst, src []byte) []byte {
 		if len(p) < minNonLiteralBlockSize {
 			d += emitLiteral(dst[d:], p)
 		} else {
-			d += encodeBlock(dst[d:], p)
+			d += e.encodeBlock(dst[d:], p)
 		}
 	}
 	return dst[:d]
@@ -176,17 +197,13 @@ func hash(u, shift uint32) uint32 {
 // It also assumes that:
 //	len(dst) >= MaxEncodedLen(len(src)) &&
 // 	minNonLiteralBlockSize <= len(src) && len(src) <= maxBlockSize
-func encodeBlock(dst, src []byte) (d int) {
-	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
-	// The table element type is uint16, as s < sLimit and sLimit < len(src)
-	// and len(src) <= maxBlockSize and maxBlockSize == 65536.
-	const maxTableSize = 1 << 14
-	shift, tableSize := uint32(32-8), 1<<8
-	for tableSize < maxTableSize && tableSize < len(src) {
+func (e *encoder) encodeBlock(dst, src []byte) (d int) {
+	shift := uint32(32 - 8)
+	for n := 1 << 8; n < tableSize && n < len(src); n *= 2 {
 		shift--
-		tableSize *= 2
 	}
-	var table [maxTableSize]uint16
+
+	// TODO: something about e.cur wrapping.
 
 	// sLimit is when to stop looking for offset/length copies. The inputMargin
 	// lets us use a fast path for emitLiteral in the main loop, while we are
@@ -198,7 +215,9 @@ func encodeBlock(dst, src []byte) (d int) {
 
 	// The encoded form must start with a literal, as there are no previous
 	// bytes to copy, so we start looking for hash matches at s == 1.
-	s := 1
+	s := 0
+	e.table[hash(load32(src, s), shift)] = e.cur
+	s = 1
 	nextHash := hash(load32(src, s), shift)
 
 	for {
@@ -229,10 +248,10 @@ func encodeBlock(dst, src []byte) (d int) {
 			if nextS > sLimit {
 				goto emitRemainder
 			}
-			candidate = int(table[nextHash])
-			table[nextHash] = uint16(s)
+			candidate = int(e.table[nextHash]) - int(e.cur)
+			e.table[nextHash] = int32(s) + e.cur
 			nextHash = hash(load32(src, nextS), shift)
-			if load32(src, s) == load32(src, candidate) {
+			if uint(candidate) < uint(s) && load32(src, s) == load32(src, candidate) {
 				break
 			}
 		}
@@ -271,10 +290,13 @@ func encodeBlock(dst, src []byte) (d int) {
 			// three load32 calls.
 			x := load64(src, s-1)
 			prevHash := hash(uint32(x>>0), shift)
-			table[prevHash] = uint16(s - 1)
+			e.table[prevHash] = int32(s-1) + e.cur
 			currHash := hash(uint32(x>>8), shift)
-			candidate = int(table[currHash])
-			table[currHash] = uint16(s)
+			candidate = int(e.table[currHash]) - int(e.cur)
+			e.table[currHash] = int32(s) + e.cur
+			if uint(candidate) >= uint(s) {
+				candidate = 0
+			}
 			if uint32(x>>8) != load32(src, candidate) {
 				nextHash = hash(uint32(x>>16), shift)
 				s++
@@ -287,6 +309,7 @@ emitRemainder:
 	if nextEmit < len(src) {
 		d += emitLiteral(dst[d:], src[nextEmit:])
 	}
+	e.cur += maxBlockSize
 	return d
 }
 
