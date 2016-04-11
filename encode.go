@@ -178,13 +178,15 @@ func hash(u, shift uint32) uint32 {
 // 	minNonLiteralBlockSize <= len(src) && len(src) <= maxBlockSize
 func encodeBlock(dst, src []byte) (d int) {
 	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
+	// The table element type is uint16, as s < sLimit and sLimit < len(src)
+	// and len(src) <= maxBlockSize and maxBlockSize == 65536.
 	const maxTableSize = 1 << 14
 	shift, tableSize := uint32(32-8), 1<<8
 	for tableSize < maxTableSize && tableSize < len(src) {
 		shift--
 		tableSize *= 2
 	}
-	var table [maxTableSize]int32
+	var table [maxTableSize]uint16
 
 	// sLimit is when to stop looking for offset/length copies. The inputMargin
 	// lets us use a fast path for emitLiteral in the main loop, while we are
@@ -228,7 +230,7 @@ func encodeBlock(dst, src []byte) (d int) {
 				goto emitRemainder
 			}
 			candidate = int(table[nextHash])
-			table[nextHash] = int32(s)
+			table[nextHash] = uint16(s)
 			nextHash = hash(load32(src, nextS), shift)
 			if load32(src, s) == load32(src, candidate) {
 				break
@@ -269,10 +271,10 @@ func encodeBlock(dst, src []byte) (d int) {
 			// three load32 calls.
 			x := load64(src, s-1)
 			prevHash := hash(uint32(x>>0), shift)
-			table[prevHash] = int32(s - 1)
+			table[prevHash] = uint16(s - 1)
 			currHash := hash(uint32(x>>8), shift)
 			candidate = int(table[currHash])
-			table[currHash] = int32(s)
+			table[currHash] = uint16(s)
 			if uint32(x>>8) != load32(src, candidate) {
 				nextHash = hash(uint32(x>>16), shift)
 				s++
