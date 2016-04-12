@@ -180,7 +180,12 @@ func encodeBlock(dst, src []byte) (d int) {
 	// Initialize the hash table. Its size ranges from 1<<8 to 1<<14 inclusive.
 	// The table element type is uint16, as s < sLimit and sLimit < len(src)
 	// and len(src) <= maxBlockSize and maxBlockSize == 65536.
-	const maxTableSize = 1 << 14
+	const (
+		maxTableSize = 1 << 14
+		// tableMask is redundant, but helps the compiler eliminate bounds
+		// checks.
+		tableMask = maxTableSize - 1
+	)
 	shift, tableSize := uint32(32-8), 1<<8
 	for tableSize < maxTableSize && tableSize < len(src) {
 		shift--
@@ -229,8 +234,8 @@ func encodeBlock(dst, src []byte) (d int) {
 			if nextS > sLimit {
 				goto emitRemainder
 			}
-			candidate = int(table[nextHash])
-			table[nextHash] = uint16(s)
+			candidate = int(table[nextHash&tableMask])
+			table[nextHash&tableMask] = uint16(s)
 			nextHash = hash(load32(src, nextS), shift)
 			if load32(src, s) == load32(src, candidate) {
 				break
@@ -271,10 +276,10 @@ func encodeBlock(dst, src []byte) (d int) {
 			// three load32 calls.
 			x := load64(src, s-1)
 			prevHash := hash(uint32(x>>0), shift)
-			table[prevHash] = uint16(s - 1)
+			table[prevHash&tableMask] = uint16(s - 1)
 			currHash := hash(uint32(x>>8), shift)
-			candidate = int(table[currHash])
-			table[currHash] = uint16(s)
+			candidate = int(table[currHash&tableMask])
+			table[currHash&tableMask] = uint16(s)
 			if uint32(x>>8) != load32(src, candidate) {
 				nextHash = hash(uint32(x>>16), shift)
 				s++
