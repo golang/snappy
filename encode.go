@@ -25,7 +25,7 @@ func load64(b []byte, i int) uint64 {
 // slice of dst if dst was large enough to hold the entire encoded block.
 // Otherwise, a newly allocated slice will be returned.
 //
-// It is valid to pass a nil dst.
+// The dst and src must not overlap. It is valid to pass a nil dst.
 func Encode(dst, src []byte) []byte {
 	if n := MaxEncodedLen(len(src)); n < 0 {
 		panic(ErrTooLarge)
