@@ -358,6 +358,13 @@ fourByteMatch:
 	//
 	// A 4-byte match has been found. We'll later see etc.
 
+	// !!! Jump to a fast path for short (<= 16 byte) literals. See the comment
+	// on inputMargin in encode.go.
+	MOVQ SI, AX
+	SUBQ R10, AX
+	CMPQ AX, $16
+	JLE  emitLiteralFastPath
+
 	// d += emitLiteral(dst[d:], src[nextEmit:s])
 	//
 	// Push args.
@@ -365,8 +372,6 @@ fourByteMatch:
 	MOVQ $0, 8(SP)   // Unnecessary, as the callee ignores it, but conservative.
 	MOVQ $0, 16(SP)  // Unnecessary, as the callee ignores it, but conservative.
 	MOVQ R10, 24(SP)
-	MOVQ SI, AX
-	SUBQ R10, AX
 	MOVQ AX, 32(SP)
 	MOVQ AX, 40(SP)  // Unnecessary, as the callee ignores it, but conservative.
 
@@ -384,6 +389,28 @@ fourByteMatch:
 
 	// Finish the "d +=" part of "d += emitLiteral(etc)".
 	ADDQ 48(SP), DI
+	JMP  inner1
+
+emitLiteralFastPath:
+	// !!! Emit the 1-byte encoding "uint8(len(lit)-1)<<2".
+	MOVB AX, BX
+	SUBB $1, BX
+	SHLB $2, BX
+	MOVB BX, (DI)
+	ADDQ $1, DI
+
+	// !!! Implement the copy from lit to dst as a 16-byte load and store.
+	// (Encode's documentation says that dst and src must not overlap.)
+	//
+	// This always copies 16 bytes, instead of only len(lit) bytes, but that's
+	// OK. Subsequent iterations will fix up the overrun.
+	//
+	// Note that on amd64, it is legal and cheap to issue unaligned 8-byte or
+	// 16-byte loads and stores. This technique probably wouldn't be as
+	// effective on architectures that are fussier about alignment.
+	MOVOU 0(R10), X0
+	MOVOU X0, 0(DI)
+	ADDQ  AX, DI
 
 inner1:
 	// for { etc }
