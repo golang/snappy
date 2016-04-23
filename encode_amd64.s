@@ -262,8 +262,11 @@ calcShift:
 varTable:
 	// var table [maxTableSize]uint16
 	//
-	// sizeof(table) is 32768 bytes, which is 2048 16-byte writes.
-	MOVQ $2048, DX
+	// In the asm code, unlike the Go code, we can zero-initialize only the
+	// first tableSize elements. Each uint16 element is 2 bytes and each MOVOU
+	// writes 16 bytes, so we can do only tableSize/8 writes instead of the
+	// 2048 writes that would zero-initialize all of table's 32768 bytes.
+	SHRQ $3, DX
 	LEAQ table-32768(SP), BX
 	PXOR X0, X0
 
