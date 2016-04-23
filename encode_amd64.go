@@ -8,6 +8,11 @@
 
 package snappy
 
+// emitCopy has the same semantics as in encode_other.go.
+//
+//go:noescape
+func emitCopy(dst []byte, offset, length int) int
+
 // extendMatch has the same semantics as in encode_other.go.
 //
 //go:noescape

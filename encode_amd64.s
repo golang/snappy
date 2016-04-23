@@ -11,6 +11,83 @@
 // The asm code generally follows the pure Go code in encode_other.go, except
 // where marked with a "!!!".
 
+// ----------------------------------------------------------------------------
+
+// func emitCopy(dst []byte, offset, length int) int
+//
+// All local variables fit into registers. The register allocation:
+//	- BX	offset
+//	- CX	length
+//	- SI	&dst[0]
+//	- DI	&dst[i]
+TEXT ·emitCopy(SB), NOSPLIT, $0-48
+	MOVQ dst_base+0(FP), DI
+	MOVQ DI, SI
+	MOVQ offset+24(FP), BX
+	MOVQ length+32(FP), CX
+
+loop0:
+	// for length >= 68 { etc }
+	CMPL CX, $68
+	JLT  step1
+
+	// Emit a length 64 copy, encoded as 3 bytes.
+	MOVB $0xfe, 0(DI)
+	MOVW BX, 1(DI)
+	ADDQ $3, DI
+	SUBL $64, CX
+	JMP  loop0
+
+step1:
+	// if length > 64 { etc }
+	CMPL CX, $64
+	JLE  step2
+
+	// Emit a length 60 copy, encoded as 3 bytes.
+	MOVB $0xee, 0(DI)
+	MOVW BX, 1(DI)
+	ADDQ $3, DI
+	SUBL $60, CX
+
+step2:
+	// if length >= 12 || offset >= 2048 { goto step3 }
+	CMPL CX, $12
+	JGE  step3
+	CMPL BX, $2048
+	JGE  step3
+
+	// Emit the remaining copy, encoded as 2 bytes.
+	MOVB BX, 1(DI)
+	SHRL $8, BX
+	SHLB $5, BX
+	SUBB $4, CX
+	SHLB $2, CX
+	ORB  CX, BX
+	ORB  $1, BX
+	MOVB BX, 0(DI)
+	ADDQ $2, DI
+
+	// Return the number of bytes written.
+	SUBQ SI, DI
+	MOVQ DI, ret+40(FP)
+	RET
+
+step3:
+	// Emit the remaining copy, encoded as 3 bytes.
+	SUBL $1, CX
+	SHLB $2, CX
+	ORB  $2, CX
+	MOVB CX, 0(DI)
+	MOVW BX, 1(DI)
+	ADDQ $3, DI
+
+	// Return the number of bytes written.
+	SUBQ SI, DI
+	MOVQ DI, ret+40(FP)
+	RET
+
+// ----------------------------------------------------------------------------
+
 // func extendMatch(src []byte, i, j int) int
 //
 // All local variables fit into registers. The register allocation:
