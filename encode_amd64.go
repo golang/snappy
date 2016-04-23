@@ -22,3 +22,8 @@ func emitCopy(dst []byte, offset, length int) int
 //
 //go:noescape
 func extendMatch(src []byte, i, j int) int
+
+// encodeBlock has the same semantics as in encode_other.go.
+//
+//go:noescape
+func encodeBlock(dst, src []byte) (d int)

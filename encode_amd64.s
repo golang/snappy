@@ -210,3 +210,329 @@ end:
 	SUBQ CX, DI
 	MOVQ DI, ret+40(FP)
 	RET
+
+// ----------------------------------------------------------------------------
+
+// func encodeBlock(dst, src []byte) (d int)
+//
+// All local variables fit into registers, other than "var table". The register
+// allocation:
+//	- AX	.	.
+//	- BX	.	.
+//	- CX	56	shift (note that amd64 shifts by non-immediates must use CX).
+//	- DX	64	&src[0], tableSize
+//	- SI	72	&src[s]
+//	- DI	80	&dst[d]
+//	- R9	88	sLimit
+//	- R10	.	&src[nextEmit]
+//	- R11	96	prevHash, currHash, nextHash, offset
+//	- R12	104	&src[base], skip
+//	- R13	.	&src[nextS]
+//	- R14	.	len(src), bytesBetweenHashLookups, x
+//	- R15	112	candidate
+//
+// The second column (56, 64, etc) is the stack offset to spill the registers
+// when calling other functions. We could pack this slightly tighter, but it's
+// simpler to have a dedicated spill map independent of the function called.
+//
+// "var table [maxTableSize]uint16" takes up 32768 bytes of stack space. An
+// extra 56 bytes, to call other functions, and an extra 64 bytes, to spill
+// local variables (registers) during calls gives 32768 + 56 + 64 = 32888.
+TEXT ·encodeBlock(SB), 0, $32888-56
+	MOVQ dst_base+0(FP), DI
+	MOVQ src_base+24(FP), SI
+	MOVQ src_len+32(FP), R14
+
+	// shift, tableSize := uint32(32-8), 1<<8
+	MOVQ $24, CX
+	MOVQ $256, DX
+
+calcShift:
+	// for ; tableSize < maxTableSize && tableSize < len(src); tableSize *= 2 {
+	//	shift--
+	// }
+	CMPQ DX, $16384
+	JGE  varTable
+	CMPQ DX, R14
+	JGE  varTable
+	SUBQ $1, CX
+	SHLQ $1, DX
+	JMP  calcShift
+
+varTable:
+	// var table [maxTableSize]uint16
+	//
+	// sizeof(table) is 32768 bytes, which is 2048 16-byte writes.
+	MOVQ $2048, DX
+	LEAQ table-32768(SP), BX
+	PXOR X0, X0
+
+memclr:
+	MOVOU X0, 0(BX)
+	ADDQ  $16, BX
+	SUBQ  $1, DX
+	JNZ   memclr
+
+	// !!! DX = &src[0]
+	MOVQ SI, DX
+
+	// sLimit := len(src) - inputMargin
+	MOVQ R14, R9
+	SUBQ $15, R9
+
+	// !!! Pre-emptively spill CX, DX and R9 to the stack. Their values don't
+	// change for the rest of the function.
+	MOVQ CX, 56(SP)
+	MOVQ DX, 64(SP)
+	MOVQ R9, 88(SP)
+
+	// nextEmit := 0
+	MOVQ DX, R10
+
+	// s := 1
+	ADDQ $1, SI
+
+	// nextHash := hash(load32(src, s), shift)
+	MOVL  0(SI), R11
+	IMULL $0x1e35a7bd, R11
+	SHRL  CX, R11
+
+outer:
+	// for { etc }
+
+	// skip := 32
+	MOVQ $32, R12
+
+	// nextS := s
+	MOVQ SI, R13
+
+	// candidate := 0
+	MOVQ $0, R15
+
+inner0:
+	// for { etc }
+
+	// s := nextS
+	MOVQ R13, SI
+
+	// bytesBetweenHashLookups := skip >> 5
+	MOVQ R12, R14
+	SHRQ $5, R14
+
+	// nextS = s + bytesBetweenHashLookups
+	ADDQ R14, R13
+
+	// skip += bytesBetweenHashLookups
+	ADDQ R14, R12
+
+	// if nextS > sLimit { goto emitRemainder }
+	MOVQ R13, AX
+	SUBQ DX, AX
+	CMPQ AX, R9
+	JA   emitRemainder
+
+	// candidate = int(table[nextHash])
+	MOVWQZX table-32768(SP)(R11*2), R15
+
+	// table[nextHash] = uint16(s)
+	MOVQ SI, AX
+	SUBQ DX, AX
+	MOVW AX, table-32768(SP)(R11*2)
+
+	// nextHash = hash(load32(src, nextS), shift)
+	MOVL  0(R13), R11
+	IMULL $0x1e35a7bd, R11
+	SHRL  CX, R11
+
+	// if load32(src, s) != load32(src, candidate) { continue } break
+	MOVL 0(SI), AX
+	MOVL (DX)(R15*1), BX
+	CMPL AX, BX
+	JNE  inner0
+
+fourByteMatch:
+	// As per the encode_other.go code:
+	//
+	// A 4-byte match has been found. We'll later see etc.
+
+	// d += emitLiteral(dst[d:], src[nextEmit:s])
+	//
+	// Push args.
+	MOVQ DI, 0(SP)
+	MOVQ $0, 8(SP)   // Unnecessary, as the callee ignores it, but conservative.
+	MOVQ $0, 16(SP)  // Unnecessary, as the callee ignores it, but conservative.
+	MOVQ R10, 24(SP)
+	MOVQ SI, AX
+	SUBQ R10, AX
+	MOVQ AX, 32(SP)
+	MOVQ AX, 40(SP)  // Unnecessary, as the callee ignores it, but conservative.
+
+	// Spill local variables (registers) onto the stack; call; unspill.
+	MOVQ SI, 72(SP)
+	MOVQ DI, 80(SP)
+	MOVQ R15, 112(SP)
+	CALL ·emitLiteral(SB)
+	MOVQ 56(SP), CX
+	MOVQ 64(SP), DX
+	MOVQ 72(SP), SI
+	MOVQ 80(SP), DI
+	MOVQ 88(SP), R9
+	MOVQ 112(SP), R15
+
+	// Finish the "d +=" part of "d += emitLiteral(etc)".
+	ADDQ 48(SP), DI
+
+inner1:
+	// for { etc }
+
+	// base := s
+	MOVQ SI, R12
+
+	// !!! offset := base - candidate
+	MOVQ R12, R11
+	SUBQ R15, R11
+	SUBQ DX, R11
+
+	// s = extendMatch(src, candidate+4, s+4)
+	//
+	// Push args.
+	MOVQ DX, 0(SP)
+	MOVQ src_len+32(FP), R14
+	MOVQ R14, 8(SP)
+	MOVQ R14, 16(SP)         // Unnecessary, as the callee ignores it, but conservative.
+	ADDQ $4, R15
+	MOVQ R15, 24(SP)
+	ADDQ $4, SI
+	SUBQ DX, SI
+	MOVQ SI, 32(SP)
+
+	// Spill local variables (registers) onto the stack; call; unspill.
+	//
+	// We don't need to unspill CX or R9 as we are just about to call another
+	// function.
+	MOVQ DI, 80(SP)
+	MOVQ R11, 96(SP)
+	MOVQ R12, 104(SP)
+	CALL ·extendMatch(SB)
+	MOVQ 64(SP), DX
+	MOVQ 80(SP), DI
+	MOVQ 96(SP), R11
+	MOVQ 104(SP), R12
+
+	// Finish the "s =" part of "s = extendMatch(etc)", remembering that the SI
+	// register holds &src[s], not s.
+	MOVQ 40(SP), SI
+	ADDQ DX, SI
+
+	// d += emitCopy(dst[d:], base-candidate, s-base)
+	//
+	// Push args.
+	MOVQ DI, 0(SP)
+	MOVQ $0, 8(SP)   // Unnecessary, as the callee ignores it, but conservative.
+	MOVQ $0, 16(SP)  // Unnecessary, as the callee ignores it, but conservative.
+	MOVQ R11, 24(SP)
+	MOVQ SI, AX
+	SUBQ R12, AX
+	MOVQ AX, 32(SP)
+
+	// Spill local variables (registers) onto the stack; call; unspill.
+	MOVQ SI, 72(SP)
+	MOVQ DI, 80(SP)
+	CALL ·emitCopy(SB)
+	MOVQ 56(SP), CX
+	MOVQ 64(SP), DX
+	MOVQ 72(SP), SI
+	MOVQ 80(SP), DI
+	MOVQ 88(SP), R9
+
+	// Finish the "d +=" part of "d += emitCopy(etc)".
+	ADDQ 40(SP), DI
+
+	// nextEmit = s
+	MOVQ SI, R10
+
+	// if s >= sLimit { goto emitRemainder }
+	MOVQ SI, AX
+	SUBQ DX, AX
+	CMPQ AX, R9
+	JAE  emitRemainder
+
+	// As per the encode_other.go code:
+	//
+	// We could immediately etc.
+
+	// x := load64(src, s-1)
+	MOVQ -1(SI), R14
+
+	// prevHash := hash(uint32(x>>0), shift)
+	MOVL  R14, R11
+	IMULL $0x1e35a7bd, R11
+	SHRL  CX, R11
+
+	// table[prevHash] = uint16(s-1)
+	MOVQ SI, AX
+	SUBQ DX, AX
+	SUBQ $1, AX
+	MOVW AX, table-32768(SP)(R11*2)
+
+	// currHash := hash(uint32(x>>8), shift)
+	SHRQ  $8, R14
+	MOVL  R14, R11
+	IMULL $0x1e35a7bd, R11
+	SHRL  CX, R11
+
+	// candidate = int(table[currHash])
+	MOVWQZX table-32768(SP)(R11*2), R15
+
+	// table[currHash] = uint16(s)
+	ADDQ $1, AX
+	MOVW AX, table-32768(SP)(R11*2)
+
+	// if uint32(x>>8) == load32(src, candidate) { continue }
+	MOVL (DX)(R15*1), BX
+	CMPL R14, BX
+	JEQ  inner1
+
+	// nextHash = hash(uint32(x>>16), shift)
+	SHRQ  $8, R14
+	MOVL  R14, R11
+	IMULL $0x1e35a7bd, R11
+	SHRL  CX, R11
+
+	// s++
+	ADDQ $1, SI
+
+	// break out of the inner1 for loop, i.e. continue the outer loop.
+	JMP outer
+
+emitRemainder:
+	// if nextEmit < len(src) { etc }
+	MOVQ src_len+32(FP), AX
+	ADDQ DX, AX
+	CMPQ R10, AX
+	JEQ  end
+
+	// d += emitLiteral(dst[d:], src[nextEmit:])
+	//
+	// Push args.
+	MOVQ DI, 0(SP)
+	MOVQ $0, 8(SP)   // Unnecessary, as the callee ignores it, but conservative.
+	MOVQ $0, 16(SP)  // Unnecessary, as the callee ignores it, but conservative.
+	MOVQ R10, 24(SP)
+	SUBQ R10, AX
+	MOVQ AX, 32(SP)
+	MOVQ AX, 40(SP)  // Unnecessary, as the callee ignores it, but conservative.
+
+	// Spill local variables (registers) onto the stack; call; unspill.
+	MOVQ DI, 80(SP)
+	CALL ·emitLiteral(SB)
+	MOVQ 80(SP), DI
+
+	// Finish the "d +=" part of "d += emitLiteral(etc)".
+	ADDQ 48(SP), DI
+
+end:
+	MOVQ dst_base+0(FP), AX
+	SUBQ AX, DI
+	MOVQ DI, d+48(FP)
+	RET
