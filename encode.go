@@ -103,11 +103,14 @@ func encodeBlock(dst, src []byte) (d int) {
 		// checks.
 		tableMask = maxTableSize - 1
 	)
-	shift, tableSize := uint32(32-8), 1<<8
-	for tableSize < maxTableSize && tableSize < len(src) {
+	shift := uint32(32 - 8)
+	for tableSize := 1 << 8; tableSize < maxTableSize && tableSize < len(src); tableSize *= 2 {
 		shift--
-		tableSize *= 2
 	}
+	// In Go, all array elements are zero-initialized, so there is no advantage
+	// to a smaller tableSize per se. However, it matches the C++ algorithm,
+	// and in the asm versions of this code, we can get away with zeroing only
+	// the first tableSize elements.
 	var table [maxTableSize]uint16
 
 	// sLimit is when to stop looking for offset/length copies. The inputMargin
