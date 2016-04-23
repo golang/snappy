@@ -6,6 +6,30 @@
 
 package snappy
 
+// emitLiteral writes a literal chunk and returns the number of bytes written.
+//
+// It assumes that:
+//	dst is long enough to hold the encoded bytes
+//	1 <= len(lit) && len(lit) <= 65536
+func emitLiteral(dst, lit []byte) int {
+	i, n := 0, uint(len(lit)-1)
+	switch {
+	case n < 60:
+		dst[0] = uint8(n)<<2 | tagLiteral
+		i = 1
+	case n < 1<<8:
+		dst[0] = 60<<2 | tagLiteral
+		dst[1] = uint8(n)
+		i = 2
+	default:
+		dst[0] = 61<<2 | tagLiteral
+		dst[1] = uint8(n)
+		dst[2] = uint8(n >> 8)
+		i = 3
+	}
+	return i + copy(dst[i:], lit)
+}
+
 // emitCopy writes a copy chunk and returns the number of bytes written.
 //
 // It assumes that:

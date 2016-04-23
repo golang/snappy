@@ -8,6 +8,11 @@
 
 package snappy
 
+// emitLiteral has the same semantics as in encode_other.go.
+//
+//go:noescape
+func emitLiteral(dst, lit []byte) int
+
 // emitCopy has the same semantics as in encode_other.go.
 //
 //go:noescape

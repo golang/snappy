@@ -13,6 +13,64 @@
 
 // ----------------------------------------------------------------------------
 
+// func emitLiteral(dst, lit []byte) int
+//
+// All local variables fit into registers. The register allocation:
+//	- AX	return value
+//	- BX	n
+//	- CX	len(lit)
+//	- SI	&lit[0]
+//	- DI	&dst[i]
+//
+// The 24 bytes of stack space is to call runtime·memmove.
+TEXT ·emitLiteral(SB), NOSPLIT, $24-56
+	MOVQ dst_base+0(FP), DI
+	MOVQ lit_base+24(FP), SI
+	MOVQ lit_len+32(FP), CX
+	MOVQ CX, AX
+	MOVL CX, BX
+	SUBL $1, BX
+
+	CMPL BX, $60
+	JLT  oneByte
+	CMPL BX, $256
+	JLT  twoBytes
+
+threeBytes:
+	MOVB $0xf4, 0(DI)
+	MOVW BX, 1(DI)
+	ADDQ $3, DI
+	ADDQ $3, AX
+	JMP  end
+
+twoBytes:
+	MOVB $0xf0, 0(DI)
+	MOVB BX, 1(DI)
+	ADDQ $2, DI
+	ADDQ $2, AX
+	JMP  end
+
+oneByte:
+	SHLB $2, BX
+	MOVB BX, 0(DI)
+	ADDQ $1, DI
+	ADDQ $1, AX
+
+end:
+	MOVQ AX, ret+48(FP)
+
+	// copy(dst[i:], lit)
+	//
+	// This means calling runtime·memmove(&dst[i], &lit[0], len(lit)), so we push
+	// DI, SI and CX as arguments.
+	MOVQ DI, 0(SP)
+	MOVQ SI, 8(SP)
+	MOVQ CX, 16(SP)
+	CALL runtime·memmove(SB)
+	RET
+
+// ----------------------------------------------------------------------------
+
 // func emitCopy(dst []byte, offset, length int) int
 //
 // All local variables fit into registers. The register allocation:
