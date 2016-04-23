@@ -670,6 +670,10 @@ func TestWriterGoldenOutput(t *testing.T) {
 	// bytes. Instead, we could do it shorter, in 5 bytes: a 3-byte tagCopy2
 	// (of length 60) and a 2-byte tagCopy1 (of length 7).
 	w.Write(bytes.Repeat([]byte{'B'}, 68))
+	w.Write([]byte("efC"))                 // Not compressible.
+	w.Write(bytes.Repeat([]byte{'C'}, 20)) // Compressible.
+	w.Write(bytes.Repeat([]byte{'B'}, 20)) // Compressible.
+	w.Write([]byte("g"))                   // Not compressible.
 	w.Flush()
 
 	got := buf.String()
@@ -681,19 +685,128 @@ func TestWriterGoldenOutput(t *testing.T) {
 		"\x00\x11\x00\x00", // Compressed chunk, 17 bytes long (including 4 byte checksum).
 		"\x5f\xeb\xf2\x10", // Checksum.
 		"\x96\x01",         // Compressed payload: Uncompressed length (varint encoded): 150.
-		"\x00\x41",         // Compressed payload: tagLiteral, length=1, "A".
+		"\x00\x41",         // Compressed payload: tagLiteral, length=1,  "A".
 		"\xfe\x01\x00",     // Compressed payload: tagCopy2,   length=64, offset=1.
 		"\xfe\x01\x00",     // Compressed payload: tagCopy2,   length=64, offset=1.
 		"\x52\x01\x00",     // Compressed payload: tagCopy2,   length=21, offset=1.
-		"\x00\x0c\x00\x00", // Compressed chunk, 12 bytes long (including 4 byte checksum).
-		"\x27\x50\xe4\x4e", // Checksum.
-		"\x44",             // Compressed payload: Uncompressed length (varint encoded): 68.
-		"\x00\x42",         // Compressed payload: tagLiteral, length=1, "B".
+		"\x00\x18\x00\x00", // Compressed chunk, 24 bytes long (including 4 byte checksum).
+		"\x30\x85\x69\xeb", // Checksum.
+		"\x70",             // Compressed payload: Uncompressed length (varint encoded): 112.
+		"\x00\x42",         // Compressed payload: tagLiteral, length=1,  "B".
 		"\xee\x01\x00",     // Compressed payload: tagCopy2,   length=60, offset=1.
-		"\x0d\x01",         // Compressed payload: tagCopy1,   length=7, offset=1.
+		"\x0d\x01",         // Compressed payload: tagCopy1,   length=7,  offset=1.
+		"\x08\x65\x66\x43", // Compressed payload: tagLiteral, length=3,  "efC".
+		"\x4e\x01\x00",     // Compressed payload: tagCopy2,   length=20, offset=1.
+		"\x4e\x5a\x00",     // Compressed payload: tagCopy2,   length=20, offset=90.
+		"\x00\x67",         // Compressed payload: tagLiteral, length=1,  "g".
 	}, "")
 	if got != want {
 		t.Fatalf("\ngot:  % x\nwant: % x", got, want)
+	}
+}
+
+func TestEmitLiteral(t *testing.T) {
+	testCases := []struct {
+		length int
+		want   string
+	}{
+		{1, "\x00"},
+		{2, "\x04"},
+		{59, "\xe8"},
+		{60, "\xec"},
+		{61, "\xf0\x3c"},
+		{62, "\xf0\x3d"},
+		{254, "\xf0\xfd"},
+		{255, "\xf0\xfe"},
+		{256, "\xf0\xff"},
+		{257, "\xf4\x00\x01"},
+		{65534, "\xf4\xfd\xff"},
+		{65535, "\xf4\xfe\xff"},
+		{65536, "\xf4\xff\xff"},
+	}
+
+	dst := make([]byte, 70000)
+	nines := bytes.Repeat([]byte{0x99}, 65536)
+	for _, tc := range testCases {
+		lit := nines[:tc.length]
+		n := emitLiteral(dst, lit)
+		if !bytes.HasSuffix(dst[:n], lit) {
+			t.Errorf("length=%d: did not end with that many literal bytes", tc.length)
+			continue
+		}
+		got := string(dst[:n-tc.length])
+		if got != tc.want {
+			t.Errorf("length=%d:\ngot  % x\nwant % x", tc.length, got, tc.want)
+			continue
+		}
+	}
+}
+
+func TestEmitCopy(t *testing.T) {
+	testCases := []struct {
+		offset int
+		length int
+		want   string
+	}{
+		{8, 04, "\x01\x08"},
+		{8, 11, "\x1d\x08"},
+		{8, 12, "\x2e\x08\x00"},
+		{8, 13, "\x32\x08\x00"},
+		{8, 59, "\xea\x08\x00"},
+		{8, 60, "\xee\x08\x00"},
+		{8, 61, "\xf2\x08\x00"},
+		{8, 62, "\xf6\x08\x00"},
+		{8, 63, "\xfa\x08\x00"},
+		{8, 64, "\xfe\x08\x00"},
+		{8, 65, "\xee\x08\x00\x05\x08"},
+		{8, 66, "\xee\x08\x00\x09\x08"},
+		{8, 67, "\xee\x08\x00\x0d\x08"},
+		{8, 68, "\xfe\x08\x00\x01\x08"},
+		{8, 69, "\xfe\x08\x00\x05\x08"},
+		{8, 80, "\xfe\x08\x00\x3e\x08\x00"},
+
+		{256, 04, "\x21\x00"},
+		{256, 11, "\x3d\x00"},
+		{256, 12, "\x2e\x00\x01"},
+		{256, 13, "\x32\x00\x01"},
+		{256, 59, "\xea\x00\x01"},
+		{256, 60, "\xee\x00\x01"},
+		{256, 61, "\xf2\x00\x01"},
+		{256, 62, "\xf6\x00\x01"},
+		{256, 63, "\xfa\x00\x01"},
+		{256, 64, "\xfe\x00\x01"},
+		{256, 65, "\xee\x00\x01\x25\x00"},
+		{256, 66, "\xee\x00\x01\x29\x00"},
+		{256, 67, "\xee\x00\x01\x2d\x00"},
+		{256, 68, "\xfe\x00\x01\x21\x00"},
+		{256, 69, "\xfe\x00\x01\x25\x00"},
+		{256, 80, "\xfe\x00\x01\x3e\x00\x01"},
+
+		{2048, 04, "\x0e\x00\x08"},
+		{2048, 11, "\x2a\x00\x08"},
+		{2048, 12, "\x2e\x00\x08"},
+		{2048, 13, "\x32\x00\x08"},
+		{2048, 59, "\xea\x00\x08"},
+		{2048, 60, "\xee\x00\x08"},
+		{2048, 61, "\xf2\x00\x08"},
+		{2048, 62, "\xf6\x00\x08"},
+		{2048, 63, "\xfa\x00\x08"},
+		{2048, 64, "\xfe\x00\x08"},
+		{2048, 65, "\xee\x00\x08\x12\x00\x08"},
+		{2048, 66, "\xee\x00\x08\x16\x00\x08"},
+		{2048, 67, "\xee\x00\x08\x1a\x00\x08"},
+		{2048, 68, "\xfe\x00\x08\x0e\x00\x08"},
+		{2048, 69, "\xfe\x00\x08\x12\x00\x08"},
+		{2048, 80, "\xfe\x00\x08\x3e\x00\x08"},
+	}
+
+	dst := make([]byte, 1024)
+	for _, tc := range testCases {
+		n := emitCopy(dst, tc.offset, tc.length)
+		got := string(dst[:n])
+		if got != tc.want {
+			t.Errorf("offset=%d, length=%d:\ngot  % x\nwant % x", tc.offset, tc.length, got, tc.want)
+		}
 	}
 }
 
