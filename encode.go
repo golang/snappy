@@ -246,9 +246,8 @@ func encodeBlock(dst, src []byte) (d int) {
 			// Invariant: we have a 4-byte match at s, and no need to emit any
 			// literal bytes prior to s.
 			base := s
-			s += 4
-			for i := candidate + 4; s < len(src) && src[i] == src[s]; i, s = i+1, s+1 {
-			}
+			// Extend the 4-byte match as long as possible.
+			s = extendMatch(src, candidate+4, s+4)
 			d += emitCopy(dst[d:], base-candidate, s-base)
 			nextEmit = s
 			if s >= sLimit {

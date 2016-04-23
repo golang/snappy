@@ -497,6 +497,49 @@ func TestEncodeGoldenInput(t *testing.T) {
 	}
 }
 
+func TestExtendMatchGoldenInput(t *testing.T) {
+	src, err := ioutil.ReadFile(goldenText)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	for i, tc := range extendMatchGoldenTestCases {
+		got := extendMatch(src, tc.i, tc.j)
+		if got != tc.want {
+			t.Errorf("test #%d: i, j = %5d, %5d: got %5d (= j + %6d), want %5d (= j + %6d)",
+				i, tc.i, tc.j, got, got-tc.j, tc.want, tc.want-tc.j)
+		}
+	}
+}
+
+func TestExtendMatch(t *testing.T) {
+	// ref is a simple, reference implementation of extendMatch.
+	ref := func(src []byte, i, j int) int {
+		for ; j < len(src) && src[i] == src[j]; i, j = i+1, j+1 {
+		}
+		return j
+	}
+
+	nums := []int{0, 1, 2, 7, 8, 9, 29, 30, 31, 32, 33, 34, 38, 39, 40}
+	for yIndex := 40; yIndex > 30; yIndex-- {
+		xxx := bytes.Repeat([]byte("x"), 40)
+		if yIndex < len(xxx) {
+			xxx[yIndex] = 'y'
+		}
+		for _, i := range nums {
+			for _, j := range nums {
+				if i >= j {
+					continue
+				}
+				got := extendMatch(xxx, i, j)
+				want := ref(xxx, i, j)
+				if got != want {
+					t.Errorf("yIndex=%d, i=%d, j=%d: got %d, want %d", yIndex, i, j, got, want)
+				}
+			}
+		}
+	}
+}
+
 const snappytoolCmdName = "cmd/snappytool/snappytool"
 
 func skipTestSameEncodingAsCpp() (msg string) {
@@ -1254,3 +1297,16 @@ func Benchmark_ZFlat8(b *testing.B)  { benchFile(b, 8, false) }
 func Benchmark_ZFlat9(b *testing.B)  { benchFile(b, 9, false) }
 func Benchmark_ZFlat10(b *testing.B) { benchFile(b, 10, false) }
 func Benchmark_ZFlat11(b *testing.B) { benchFile(b, 11, false) }
+
+func BenchmarkExtendMatch(b *testing.B) {
+	src, err := ioutil.ReadFile(goldenText)
+	if err != nil {
+		b.Fatalf("ReadFile: %v", err)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, tc := range extendMatchGoldenTestCases {
+			extendMatch(src, tc.i, tc.j)
+		}
+	}
+}
