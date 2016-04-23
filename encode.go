@@ -22,6 +22,10 @@ func load64(b []byte, i int) uint64 {
 }
 
 // emitLiteral writes a literal chunk and returns the number of bytes written.
+//
+// It assumes that:
+//	dst is long enough to hold the encoded bytes
+//	1 <= len(lit) && len(lit) <= 65536
 func emitLiteral(dst, lit []byte) int {
 	i, n := 0, uint(len(lit)-1)
 	switch {
@@ -32,34 +36,21 @@ func emitLiteral(dst, lit []byte) int {
 		dst[0] = 60<<2 | tagLiteral
 		dst[1] = uint8(n)
 		i = 2
-	case n < 1<<16:
+	default:
 		dst[0] = 61<<2 | tagLiteral
 		dst[1] = uint8(n)
 		dst[2] = uint8(n >> 8)
 		i = 3
-	case n < 1<<24:
-		dst[0] = 62<<2 | tagLiteral
-		dst[1] = uint8(n)
-		dst[2] = uint8(n >> 8)
-		dst[3] = uint8(n >> 16)
-		i = 4
-	case int64(n) < 1<<32:
-		dst[0] = 63<<2 | tagLiteral
-		dst[1] = uint8(n)
-		dst[2] = uint8(n >> 8)
-		dst[3] = uint8(n >> 16)
-		dst[4] = uint8(n >> 24)
-		i = 5
-	default:
-		panic("snappy: source buffer is too long")
 	}
-	if copy(dst[i:], lit) != len(lit) {
-		panic("snappy: destination buffer is too short")
-	}
-	return i + len(lit)
+	return i + copy(dst[i:], lit)
 }
 
 // emitCopy writes a copy chunk and returns the number of bytes written.
+//
+// It assumes that:
+//	dst is long enough to hold the encoded bytes
+//	1 <= offset && offset <= 65535
+//	4 <= length && length <= 65535
 func emitCopy(dst []byte, offset, length int) int {
 	i := 0
 	// The maximum length for a single tagCopy1 or tagCopy2 op is 64 bytes. The
