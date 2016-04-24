@@ -8,6 +8,11 @@
 
 #include "textflag.h"
 
+// TODO: figure out why the XXX lines compile with Go 1.4 and Go tip but not
+// Go 1.6.
+//
+// This is https://github.com/golang/snappy/issues/29
+
 // The asm code generally follows the pure Go code in encode_other.go, except
 // where marked with a "!!!".
 
@@ -335,12 +340,26 @@ inner0:
 	JA   emitRemainder
 
 	// candidate = int(table[nextHash])
-	MOVWQZX table-32768(SP)(R11*2), R15
+	// XXX: MOVWQZX table-32768(SP)(R11*2), R15
+	// XXX: 4e 0f b7 7c 5c 78       movzwq 0x78(%rsp,%r11,2),%r15
+	BYTE $0x4e
+	BYTE $0x0f
+	BYTE $0xb7
+	BYTE $0x7c
+	BYTE $0x5c
+	BYTE $0x78
 
 	// table[nextHash] = uint16(s)
 	MOVQ SI, AX
 	SUBQ DX, AX
-	MOVW AX, table-32768(SP)(R11*2)
+	// XXX: MOVW AX, table-32768(SP)(R11*2)
+	// XXX: 66 42 89 44 5c 78       mov    %ax,0x78(%rsp,%r11,2)
+	BYTE $0x66
+	BYTE $0x42
+	BYTE $0x89
+	BYTE $0x44
+	BYTE $0x5c
+	BYTE $0x78
 
 	// nextHash = hash(load32(src, nextS), shift)
 	MOVL  0(R13), R11
@@ -503,7 +522,14 @@ inner1:
 	MOVQ SI, AX
 	SUBQ DX, AX
 	SUBQ $1, AX
-	MOVW AX, table-32768(SP)(R11*2)
+	// XXX: MOVW AX, table-32768(SP)(R11*2)
+	// XXX: 66 42 89 44 5c 78       mov    %ax,0x78(%rsp,%r11,2)
+	BYTE $0x66
+	BYTE $0x42
+	BYTE $0x89
+	BYTE $0x44
+	BYTE $0x5c
+	BYTE $0x78
 
 	// currHash := hash(uint32(x>>8), shift)
 	SHRQ  $8, R14
@@ -512,11 +538,25 @@ inner1:
 	SHRL  CX, R11
 
 	// candidate = int(table[currHash])
-	MOVWQZX table-32768(SP)(R11*2), R15
+	// XXX: MOVWQZX table-32768(SP)(R11*2), R15
+	// XXX: 4e 0f b7 7c 5c 78       movzwq 0x78(%rsp,%r11,2),%r15
+	BYTE $0x4e
+	BYTE $0x0f
+	BYTE $0xb7
+	BYTE $0x7c
+	BYTE $0x5c
+	BYTE $0x78
 
 	// table[currHash] = uint16(s)
 	ADDQ $1, AX
-	MOVW AX, table-32768(SP)(R11*2)
+	// XXX: MOVW AX, table-32768(SP)(R11*2)
+	// XXX: 66 42 89 44 5c 78       mov    %ax,0x78(%rsp,%r11,2)
+	BYTE $0x66
+	BYTE $0x42
+	BYTE $0x89
+	BYTE $0x44
+	BYTE $0x5c
+	BYTE $0x78
 
 	// if uint32(x>>8) == load32(src, candidate) { continue }
 	MOVL (DX)(R15*1), BX
