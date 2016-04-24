@@ -41,14 +41,14 @@ threeBytes:
 	MOVW BX, 1(DI)
 	ADDQ $3, DI
 	ADDQ $3, AX
-	JMP  end
+	JMP  emitLiteralEnd
 
 twoBytes:
 	MOVB $0xf0, 0(DI)
 	MOVB BX, 1(DI)
 	ADDQ $2, DI
 	ADDQ $2, AX
-	JMP  end
+	JMP  emitLiteralEnd
 
 oneByte:
 	SHLB $2, BX
@@ -56,7 +56,7 @@ oneByte:
 	ADDQ $1, DI
 	ADDQ $1, AX
 
-end:
+emitLiteralEnd:
 	MOVQ AX, ret+48(FP)
 
 	// copy(dst[i:], lit)
@@ -196,16 +196,16 @@ bsf:
 cmp1:
 	// In src's tail, compare 1 byte at a time.
 	CMPQ DI, DX
-	JAE  end
+	JAE  extendMatchEnd
 	MOVB (SI), AX
 	MOVB (DI), BX
 	CMPB AX, BX
-	JNE  end
+	JNE  extendMatchEnd
 	ADDQ $1, SI
 	ADDQ $1, DI
 	JMP  cmp1
 
-end:
+extendMatchEnd:
 	// Convert from &src[ret] to ret.
 	SUBQ CX, DI
 	MOVQ DI, ret+40(FP)
@@ -540,7 +540,7 @@ emitRemainder:
 	MOVQ src_len+32(FP), AX
 	ADDQ DX, AX
 	CMPQ R10, AX
-	JEQ  end
+	JEQ  encodeBlockEnd
 
 	// d += emitLiteral(dst[d:], src[nextEmit:])
 	//
@@ -561,7 +561,7 @@ emitRemainder:
 	// Finish the "d +=" part of "d += emitLiteral(etc)".
 	ADDQ 48(SP), DI
 
-end:
+encodeBlockEnd:
 	MOVQ dst_base+0(FP), AX
 	SUBQ AX, DI
 	MOVQ DI, d+48(FP)
