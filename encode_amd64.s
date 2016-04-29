@@ -57,14 +57,14 @@ threeBytes:
 	MOVW BX, 1(DI)
 	ADDQ $3, DI
 	ADDQ $3, DX
-	JMP  emitLiteralEnd
+	JMP  memmove
 
 twoBytes:
 	MOVB $0xf0, 0(DI)
 	MOVB BX, 1(DI)
 	ADDQ $2, DI
 	ADDQ $2, DX
-	JMP  emitLiteralEnd
+	JMP  memmove
 
 oneByte:
 	SHLB $2, BX
@@ -72,7 +72,7 @@ oneByte:
 	ADDQ $1, DI
 	ADDQ $1, DX
 
-emitLiteralEnd:
+memmove:
 	MOVQ DX, ret+48(FP)
 
 	// copy(dst[i:], lit)
@@ -400,31 +400,63 @@ fourByteMatch:
 	CMPQ AX, $16
 	JLE  emitLiteralFastPath
 
-	// d += emitLiteral(dst[d:], src[nextEmit:s])
+	// ----------------------------------------
+	// Begin inline of the emitLiteral call.
 	//
-	// Push args.
-	MOVQ DI, 0(SP)
-	MOVQ $0, 8(SP)   // Unnecessary, as the callee ignores it, but conservative.
-	MOVQ $0, 16(SP)  // Unnecessary, as the callee ignores it, but conservative.
-	MOVQ R10, 24(SP)
-	MOVQ AX, 32(SP)
-	MOVQ AX, 40(SP)  // Unnecessary, as the callee ignores it, but conservative.
+	// d += emitLiteral(dst[d:], src[nextEmit:s])
 
+	MOVL AX, BX
+	SUBL $1, BX
+
+	CMPL BX, $60
+	JLT  inlineEmitLiteralOneByte
+	CMPL BX, $256
+	JLT  inlineEmitLiteralTwoBytes
+
+inlineEmitLiteralThreeBytes:
+	MOVB $0xf4, 0(DI)
+	MOVW BX, 1(DI)
+	ADDQ $3, DI
+	JMP  inlineEmitLiteralMemmove
+
+inlineEmitLiteralTwoBytes:
+	MOVB $0xf0, 0(DI)
+	MOVB BX, 1(DI)
+	ADDQ $2, DI
+	JMP  inlineEmitLiteralMemmove
+
+inlineEmitLiteralOneByte:
+	SHLB $2, BX
+	MOVB BX, 0(DI)
+	ADDQ $1, DI
+
+inlineEmitLiteralMemmove:
 	// Spill local variables (registers) onto the stack; call; unspill.
+	//
+	// copy(dst[i:], lit)
+	//
+	// This means calling runtime·memmove(&dst[i], &lit[0], len(lit)), so we push
+	// DI, R10 and AX as arguments.
+	MOVQ DI, 0(SP)
+	MOVQ R10, 8(SP)
+	MOVQ AX, 16(SP)
+	// Finish the "d +=" part of "d += emitLiteral(etc)".
+	ADDQ AX, DI
 	MOVQ SI, 72(SP)
 	MOVQ DI, 80(SP)
 	MOVQ R15, 112(SP)
-	CALL ·emitLiteral(SB)
+	CALL runtime·memmove(SB)
 	MOVQ 56(SP), CX
 	MOVQ 64(SP), DX
 	MOVQ 72(SP), SI
 	MOVQ 80(SP), DI
 	MOVQ 88(SP), R9
 	MOVQ 112(SP), R15
-
-	// Finish the "d +=" part of "d += emitLiteral(etc)".
-	ADDQ 48(SP), DI
 	JMP  inner1
+
+inlineEmitLiteralEnd:
+	// End inline of the emitLiteral call.
+	// ----------------------------------------
 
 emitLiteralFastPath:
 	// !!! Emit the 1-byte encoding "uint8(len(lit)-1)<<2".
