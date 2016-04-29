@@ -86,55 +86,59 @@ emitLiteralEnd:
 // func emitCopy(dst []byte, offset, length int) int
 //
 // All local variables fit into registers. The register allocation:
-//	- BX	offset
-//	- CX	length
+//	- AX	length
 //	- SI	&dst[0]
 //	- DI	&dst[i]
+//	- R11	offset
+//
+// The unusual register allocation of AX and R11 for local variables matches
+// the allocation used at the call site in encodeBlock, which makes it easier
+// to manually inline this function.
 TEXT ·emitCopy(SB), NOSPLIT, $0-48
 	MOVQ dst_base+0(FP), DI
 	MOVQ DI, SI
-	MOVQ offset+24(FP), BX
-	MOVQ length+32(FP), CX
+	MOVQ offset+24(FP), R11
+	MOVQ length+32(FP), AX
 
 loop0:
 	// for length >= 68 { etc }
-	CMPL CX, $68
+	CMPL AX, $68
 	JLT  step1
 
 	// Emit a length 64 copy, encoded as 3 bytes.
 	MOVB $0xfe, 0(DI)
-	MOVW BX, 1(DI)
+	MOVW R11, 1(DI)
 	ADDQ $3, DI
-	SUBL $64, CX
+	SUBL $64, AX
 	JMP  loop0
 
 step1:
 	// if length > 64 { etc }
-	CMPL CX, $64
+	CMPL AX, $64
 	JLE  step2
 
 	// Emit a length 60 copy, encoded as 3 bytes.
 	MOVB $0xee, 0(DI)
-	MOVW BX, 1(DI)
+	MOVW R11, 1(DI)
 	ADDQ $3, DI
-	SUBL $60, CX
+	SUBL $60, AX
 
 step2:
 	// if length >= 12 || offset >= 2048 { goto step3 }
-	CMPL CX, $12
+	CMPL AX, $12
 	JGE  step3
-	CMPL BX, $2048
+	CMPL R11, $2048
 	JGE  step3
 
 	// Emit the remaining copy, encoded as 2 bytes.
-	MOVB BX, 1(DI)
-	SHRL $8, BX
-	SHLB $5, BX
-	SUBB $4, CX
-	SHLB $2, CX
-	ORB  CX, BX
-	ORB  $1, BX
-	MOVB BX, 0(DI)
+	MOVB R11, 1(DI)
+	SHRL $8, R11
+	SHLB $5, R11
+	SUBB $4, AX
+	SHLB $2, AX
+	ORB  AX, R11
+	ORB  $1, R11
+	MOVB R11, 0(DI)
 	ADDQ $2, DI
 
 	// Return the number of bytes written.
@@ -144,11 +148,11 @@ step2:
 
 step3:
 	// Emit the remaining copy, encoded as 3 bytes.
-	SUBL $1, CX
-	SHLB $2, CX
-	ORB  $2, CX
-	MOVB CX, 0(DI)
-	MOVW BX, 1(DI)
+	SUBL $1, AX
+	SHLB $2, AX
+	ORB  $2, AX
+	MOVB AX, 0(DI)
+	MOVW R11, 1(DI)
 	ADDQ $3, DI
 
 	// Return the number of bytes written.
