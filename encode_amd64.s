@@ -359,6 +359,7 @@ inner0:
 	// table[nextHash] = uint16(s)
 	MOVQ SI, AX
 	SUBQ DX, AX
+
 	// XXX: MOVW AX, table-32768(SP)(R11*2)
 	// XXX: 66 42 89 44 5c 78       mov    %ax,0x78(%rsp,%r11,2)
 	BYTE $0x66
@@ -529,6 +530,7 @@ inner1:
 	MOVQ SI, AX
 	SUBQ DX, AX
 	SUBQ $1, AX
+
 	// XXX: MOVW AX, table-32768(SP)(R11*2)
 	// XXX: 66 42 89 44 5c 78       mov    %ax,0x78(%rsp,%r11,2)
 	BYTE $0x66
@@ -556,6 +558,7 @@ inner1:
 
 	// table[currHash] = uint16(s)
 	ADDQ $1, AX
+
 	// XXX: MOVW AX, table-32768(SP)(R11*2)
 	// XXX: 66 42 89 44 5c 78       mov    %ax,0x78(%rsp,%r11,2)
 	BYTE $0x66
