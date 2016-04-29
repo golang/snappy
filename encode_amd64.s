@@ -8,10 +8,17 @@
 
 #include "textflag.h"
 
-// TODO: figure out why the XXX lines compile with Go 1.4 and Go tip but not
-// Go 1.6.
+// The XXX lines assemble on Go 1.4, 1.5 and 1.7, but not 1.6, due to a
+// Go toolchain regression. See https://github.com/golang/go/issues/15426 and
+// https://github.com/golang/snappy/issues/29
 //
-// This is https://github.com/golang/snappy/issues/29
+// As a workaround, the package was built with a known good assembler, and
+// those instructions were disassembled by "objdump -d" to yield the
+//	4e 0f b7 7c 5c 78       movzwq 0x78(%rsp,%r11,2),%r15
+// style comments, in AT&T asm syntax. Note that rsp here is a physical
+// register, not Go/asm's SP pseudo-register (see https://golang.org/doc/asm).
+// The instructions were then encoded as "BYTE $0x.." sequences, which assemble
+// fine on Go 1.6.
 
 // The asm code generally follows the pure Go code in encode_other.go, except
 // where marked with a "!!!".
