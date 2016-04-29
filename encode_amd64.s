@@ -251,8 +251,8 @@ extendMatchEnd:
 //	- R10	.	&src[nextEmit]
 //	- R11	96	prevHash, currHash, nextHash, offset
 //	- R12	104	&src[base], skip
-//	- R13	.	&src[nextS]
-//	- R14	.	len(src), bytesBetweenHashLookups, x
+//	- R13	.	&src[nextS], &src[len(src) - 8]
+//	- R14	.	len(src), bytesBetweenHashLookups, &src[len(src)], x
 //	- R15	112	candidate
 //
 // The second column (56, 64, etc) is the stack offset to spill the registers
@@ -444,8 +444,7 @@ inlineEmitLiteralMemmove:
 	MOVQ DI, 0(SP)
 	MOVQ R10, 8(SP)
 	MOVQ AX, 16(SP)
-	// Finish the "d +=" part of "d += emitLiteral(etc)".
-	ADDQ AX, DI
+	ADDQ AX, DI              // Finish the "d +=" part of "d += emitLiteral(etc)".
 	MOVQ SI, 72(SP)
 	MOVQ DI, 80(SP)
 	MOVQ R15, 112(SP)
@@ -494,35 +493,65 @@ inner1:
 	SUBQ R15, R11
 	SUBQ DX, R11
 
-	// s = extendMatch(src, candidate+4, s+4)
+	// ----------------------------------------
+	// Begin inline of the extendMatch call.
 	//
-	// Push args.
-	MOVQ DX, 0(SP)
+	// s = extendMatch(src, candidate+4, s+4)
+
+	// !!! R14 = &src[len(src)]
 	MOVQ src_len+32(FP), R14
-	MOVQ R14, 8(SP)
-	MOVQ R14, 16(SP)         // Unnecessary, as the callee ignores it, but conservative.
+	ADDQ DX, R14
+
+	// !!! R13 = &src[len(src) - 8]
+	MOVQ R14, R13
+	SUBQ $8, R13
+
+	// !!! R15 = &src[candidate + 4]
 	ADDQ $4, R15
-	MOVQ R15, 24(SP)
+	ADDQ DX, R15
+
+	// !!! s += 4
 	ADDQ $4, SI
-	SUBQ DX, SI
-	MOVQ SI, 32(SP)
 
-	// Spill local variables (registers) onto the stack; call; unspill.
-	MOVQ DI, 80(SP)
-	MOVQ R11, 96(SP)
-	MOVQ R12, 104(SP)
-	CALL ·extendMatch(SB)
-	MOVQ 56(SP), CX
-	MOVQ 64(SP), DX
-	MOVQ 80(SP), DI
-	MOVQ 88(SP), R9
-	MOVQ 96(SP), R11
-	MOVQ 104(SP), R12
+inlineExtendMatchCmp8:
+	// As long as we are 8 or more bytes before the end of src, we can load and
+	// compare 8 bytes at a time. If those 8 bytes are equal, repeat.
+	CMPQ SI, R13
+	JA   inlineExtendMatchCmp1
+	MOVQ (R15), AX
+	MOVQ (SI), BX
+	CMPQ AX, BX
+	JNE  inlineExtendMatchBSF
+	ADDQ $8, R15
+	ADDQ $8, SI
+	JMP  inlineExtendMatchCmp8
 
-	// Finish the "s =" part of "s = extendMatch(etc)", remembering that the SI
-	// register holds &src[s], not s.
-	MOVQ 40(SP), SI
-	ADDQ DX, SI
+inlineExtendMatchBSF:
+	// If those 8 bytes were not equal, XOR the two 8 byte values, and return
+	// the index of the first byte that differs. The BSF instruction finds the
+	// least significant 1 bit, the amd64 architecture is little-endian, and
+	// the shift by 3 converts a bit index to a byte index.
+	XORQ AX, BX
+	BSFQ BX, BX
+	SHRQ $3, BX
+	ADDQ BX, SI
+	JMP  inlineExtendMatchEnd
+
+inlineExtendMatchCmp1:
+	// In src's tail, compare 1 byte at a time.
+	CMPQ SI, R14
+	JAE  inlineExtendMatchEnd
+	MOVB (R15), AX
+	MOVB (SI), BX
+	CMPB AX, BX
+	JNE  inlineExtendMatchEnd
+	ADDQ $1, R15
+	ADDQ $1, SI
+	JMP  inlineExtendMatchCmp1
+
+inlineExtendMatchEnd:
+	// End inline of the extendMatch call.
+	// ----------------------------------------
 
 	// ----------------------------------------
 	// Begin inline of the emitCopy call.
