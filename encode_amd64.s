@@ -169,33 +169,37 @@ step3:
 // func extendMatch(src []byte, i, j int) int
 //
 // All local variables fit into registers. The register allocation:
-//	- CX	&src[0]
-//	- DX	&src[len(src)]
-//	- SI	&src[i]
-//	- DI	&src[j]
-//	- R9	&src[len(src) - 8]
+//	- DX	&src[0]
+//	- SI	&src[j]
+//	- R13	&src[len(src) - 8]
+//	- R14	&src[len(src)]
+//	- R15	&src[i]
+//
+// The unusual register allocation of local variables, such as R15 for a source
+// pointer, matches the allocation used at the call site in encodeBlock, which
+// makes it easier to manually inline this function.
 TEXT ·extendMatch(SB), NOSPLIT, $0-48
-	MOVQ src_base+0(FP), CX
-	MOVQ src_len+8(FP), DX
-	MOVQ i+24(FP), SI
-	MOVQ j+32(FP), DI
-	ADDQ CX, DX
-	ADDQ CX, SI
-	ADDQ CX, DI
-	MOVQ DX, R9
-	SUBQ $8, R9
+	MOVQ src_base+0(FP), DX
+	MOVQ src_len+8(FP), R14
+	MOVQ i+24(FP), R15
+	MOVQ j+32(FP), SI
+	ADDQ DX, R14
+	ADDQ DX, R15
+	ADDQ DX, SI
+	MOVQ R14, R13
+	SUBQ $8, R13
 
 cmp8:
 	// As long as we are 8 or more bytes before the end of src, we can load and
 	// compare 8 bytes at a time. If those 8 bytes are equal, repeat.
-	CMPQ DI, R9
+	CMPQ SI, R13
 	JA   cmp1
-	MOVQ (SI), AX
-	MOVQ (DI), BX
+	MOVQ (R15), AX
+	MOVQ (SI), BX
 	CMPQ AX, BX
 	JNE  bsf
+	ADDQ $8, R15
 	ADDQ $8, SI
-	ADDQ $8, DI
 	JMP  cmp8
 
 bsf:
@@ -206,29 +210,29 @@ bsf:
 	XORQ AX, BX
 	BSFQ BX, BX
 	SHRQ $3, BX
-	ADDQ BX, DI
+	ADDQ BX, SI
 
 	// Convert from &src[ret] to ret.
-	SUBQ CX, DI
-	MOVQ DI, ret+40(FP)
+	SUBQ DX, SI
+	MOVQ SI, ret+40(FP)
 	RET
 
 cmp1:
 	// In src's tail, compare 1 byte at a time.
-	CMPQ DI, DX
+	CMPQ SI, R14
 	JAE  extendMatchEnd
-	MOVB (SI), AX
-	MOVB (DI), BX
+	MOVB (R15), AX
+	MOVB (SI), BX
 	CMPB AX, BX
 	JNE  extendMatchEnd
+	ADDQ $1, R15
 	ADDQ $1, SI
-	ADDQ $1, DI
 	JMP  cmp1
 
 extendMatchEnd:
 	// Convert from &src[ret] to ret.
-	SUBQ CX, DI
-	MOVQ DI, ret+40(FP)
+	SUBQ DX, SI
+	MOVQ SI, ret+40(FP)
 	RET
 
 // ----------------------------------------------------------------------------
