@@ -472,15 +472,14 @@ inner1:
 	MOVQ SI, 32(SP)
 
 	// Spill local variables (registers) onto the stack; call; unspill.
-	//
-	// We don't need to unspill CX or R9 as we are just about to call another
-	// function.
 	MOVQ DI, 80(SP)
 	MOVQ R11, 96(SP)
 	MOVQ R12, 104(SP)
 	CALL ·extendMatch(SB)
+	MOVQ 56(SP), CX
 	MOVQ 64(SP), DX
 	MOVQ 80(SP), DI
+	MOVQ 88(SP), R9
 	MOVQ 96(SP), R11
 	MOVQ 104(SP), R12
 
@@ -489,29 +488,69 @@ inner1:
 	MOVQ 40(SP), SI
 	ADDQ DX, SI
 
-	// d += emitCopy(dst[d:], base-candidate, s-base)
+	// ----------------------------------------
+	// Begin inline of the emitCopy call.
 	//
-	// Push args.
-	MOVQ DI, 0(SP)
-	MOVQ $0, 8(SP)   // Unnecessary, as the callee ignores it, but conservative.
-	MOVQ $0, 16(SP)  // Unnecessary, as the callee ignores it, but conservative.
-	MOVQ R11, 24(SP)
+	// d += emitCopy(dst[d:], base-candidate, s-base)
+
+	// !!! length := s - base
 	MOVQ SI, AX
 	SUBQ R12, AX
-	MOVQ AX, 32(SP)
 
-	// Spill local variables (registers) onto the stack; call; unspill.
-	MOVQ SI, 72(SP)
-	MOVQ DI, 80(SP)
-	CALL ·emitCopy(SB)
-	MOVQ 56(SP), CX
-	MOVQ 64(SP), DX
-	MOVQ 72(SP), SI
-	MOVQ 80(SP), DI
-	MOVQ 88(SP), R9
+inlineEmitCopyLoop0:
+	// for length >= 68 { etc }
+	CMPL AX, $68
+	JLT  inlineEmitCopyStep1
 
-	// Finish the "d +=" part of "d += emitCopy(etc)".
-	ADDQ 40(SP), DI
+	// Emit a length 64 copy, encoded as 3 bytes.
+	MOVB $0xfe, 0(DI)
+	MOVW R11, 1(DI)
+	ADDQ $3, DI
+	SUBL $64, AX
+	JMP  inlineEmitCopyLoop0
+
+inlineEmitCopyStep1:
+	// if length > 64 { etc }
+	CMPL AX, $64
+	JLE  inlineEmitCopyStep2
+
+	// Emit a length 60 copy, encoded as 3 bytes.
+	MOVB $0xee, 0(DI)
+	MOVW R11, 1(DI)
+	ADDQ $3, DI
+	SUBL $60, AX
+
+inlineEmitCopyStep2:
+	// if length >= 12 || offset >= 2048 { goto inlineEmitCopyStep3 }
+	CMPL AX, $12
+	JGE  inlineEmitCopyStep3
+	CMPL R11, $2048
+	JGE  inlineEmitCopyStep3
+
+	// Emit the remaining copy, encoded as 2 bytes.
+	MOVB R11, 1(DI)
+	SHRL $8, R11
+	SHLB $5, R11
+	SUBB $4, AX
+	SHLB $2, AX
+	ORB  AX, R11
+	ORB  $1, R11
+	MOVB R11, 0(DI)
+	ADDQ $2, DI
+	JMP  inlineEmitCopyEnd
+
+inlineEmitCopyStep3:
+	// Emit the remaining copy, encoded as 3 bytes.
+	SUBL $1, AX
+	SHLB $2, AX
+	ORB  $2, AX
+	MOVB AX, 0(DI)
+	MOVW R11, 1(DI)
+	ADDQ $3, DI
+
+inlineEmitCopyEnd:
+	// End inline of the emitCopy call.
+	// ----------------------------------------
 
 	// nextEmit = s
 	MOVQ SI, R10
