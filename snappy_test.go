@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	download = flag.Bool("download", false, "If true, download any missing files before running benchmarks")
-	testdata = flag.String("testdata", "testdata", "Directory containing the test data")
+	download     = flag.Bool("download", false, "If true, download any missing files before running benchmarks")
+	testdataDir  = flag.String("testdataDir", "testdata", "Directory containing the test data")
+	benchdataDir = flag.String("benchdataDir", "testdata/bench", "Directory containing the benchmark data")
 )
 
 // goEncoderShouldMatchCppEncoder is whether to test that the algorithm used by
@@ -468,7 +469,8 @@ const (
 )
 
 func TestDecodeGoldenInput(t *testing.T) {
-	src, err := ioutil.ReadFile(filepath.Join(*testdata, goldenCompressed))
+	tDir := filepath.FromSlash(*testdataDir)
+	src, err := ioutil.ReadFile(filepath.Join(tDir, goldenCompressed))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -476,7 +478,7 @@ func TestDecodeGoldenInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	want, err := ioutil.ReadFile(filepath.Join(*testdata, goldenText))
+	want, err := ioutil.ReadFile(filepath.Join(tDir, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -486,12 +488,13 @@ func TestDecodeGoldenInput(t *testing.T) {
 }
 
 func TestEncodeGoldenInput(t *testing.T) {
-	src, err := ioutil.ReadFile(filepath.Join(*testdata, goldenText))
+	tDir := filepath.FromSlash(*testdataDir)
+	src, err := ioutil.ReadFile(filepath.Join(tDir, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	got := Encode(nil, src)
-	want, err := ioutil.ReadFile(filepath.Join(*testdata, goldenCompressed))
+	want, err := ioutil.ReadFile(filepath.Join(tDir, goldenCompressed))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -501,7 +504,8 @@ func TestEncodeGoldenInput(t *testing.T) {
 }
 
 func TestExtendMatchGoldenInput(t *testing.T) {
-	src, err := ioutil.ReadFile(filepath.Join(*testdata, goldenText))
+	tDir := filepath.FromSlash(*testdataDir)
+	src, err := ioutil.ReadFile(filepath.Join(tDir, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -583,12 +587,13 @@ func TestSameEncodingAsCppLongFiles(t *testing.T) {
 	if msg := skipTestSameEncodingAsCpp(); msg != "" {
 		t.Skip(msg)
 	}
+	bDir := filepath.FromSlash(*benchdataDir)
 	failed := false
 	for i, tf := range testFiles {
 		if err := downloadBenchmarkFiles(t, tf.filename); err != nil {
 			t.Fatalf("failed to download testdata: %s", err)
 		}
-		data := readFile(t, filepath.Join(*testdata, benchDir, tf.filename))
+		data := readFile(t, filepath.Join(bDir, tf.filename))
 		if n := tf.sizeLimit; 0 < n && n < len(data) {
 			data = data[:n]
 		}
@@ -1214,14 +1219,11 @@ var testFiles = []struct {
 const (
 	// The benchmark data files are at this canonical URL.
 	benchURL = "https://raw.githubusercontent.com/google/snappy/master/testdata/"
-
-	// They are copied to this local directory under testdata.
-	benchDir = "bench"
 )
 
 func downloadBenchmarkFiles(b testing.TB, basename string) (errRet error) {
-	tdBenchDir := filepath.Join(*testdata, benchDir)
-	filename := filepath.Join(tdBenchDir, basename)
+	bDir := filepath.FromSlash(*benchdataDir)
+	filename := filepath.Join(bDir, basename)
 	if stat, err := os.Stat(filename); err == nil && stat.Size() != 0 {
 		return nil
 	}
@@ -1231,8 +1233,8 @@ func downloadBenchmarkFiles(b testing.TB, basename string) (errRet error) {
 	}
 	// Download the official snappy C++ implementation reference test data
 	// files for benchmarking.
-	if err := os.MkdirAll(tdBenchDir, 0777); err != nil && !os.IsExist(err) {
-		return fmt.Errorf("failed to create %s: %s", tdBenchDir, err)
+	if err := os.MkdirAll(bDir, 0777); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("failed to create %s: %s", bDir, err)
 	}
 
 	f, err := os.Create(filename)
@@ -1265,7 +1267,8 @@ func benchFile(b *testing.B, i int, decode bool) {
 	if err := downloadBenchmarkFiles(b, testFiles[i].filename); err != nil {
 		b.Fatalf("failed to download testdata: %s", err)
 	}
-	data := readFile(b, filepath.Join(*testdata, benchDir, testFiles[i].filename))
+	bDir := filepath.FromSlash(*benchdataDir)
+	data := readFile(b, filepath.Join(bDir, testFiles[i].filename))
 	if n := testFiles[i].sizeLimit; 0 < n && n < len(data) {
 		data = data[:n]
 	}
