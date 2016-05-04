@@ -21,7 +21,10 @@ import (
 	"testing"
 )
 
-var download = flag.Bool("download", false, "If true, download any missing files before running benchmarks")
+var (
+	download = flag.Bool("download", false, "If true, download any missing files before running benchmarks")
+	testdata = flag.String("testdata", "testdata", "Directory containing the test data")
+)
 
 // goEncoderShouldMatchCppEncoder is whether to test that the algorithm used by
 // Go's encoder matches byte-for-byte what the C++ snappy encoder produces, on
@@ -460,12 +463,12 @@ func TestDecodeLengthOffset(t *testing.T) {
 }
 
 const (
-	goldenText       = "testdata/Mark.Twain-Tom.Sawyer.txt"
+	goldenText       = "Mark.Twain-Tom.Sawyer.txt"
 	goldenCompressed = goldenText + ".rawsnappy"
 )
 
 func TestDecodeGoldenInput(t *testing.T) {
-	src, err := ioutil.ReadFile(goldenCompressed)
+	src, err := ioutil.ReadFile(filepath.Join(*testdata, goldenCompressed))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -473,7 +476,7 @@ func TestDecodeGoldenInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	want, err := ioutil.ReadFile(goldenText)
+	want, err := ioutil.ReadFile(filepath.Join(*testdata, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -483,12 +486,12 @@ func TestDecodeGoldenInput(t *testing.T) {
 }
 
 func TestEncodeGoldenInput(t *testing.T) {
-	src, err := ioutil.ReadFile(goldenText)
+	src, err := ioutil.ReadFile(filepath.Join(*testdata, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	got := Encode(nil, src)
-	want, err := ioutil.ReadFile(goldenCompressed)
+	want, err := ioutil.ReadFile(filepath.Join(*testdata, goldenCompressed))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -498,7 +501,7 @@ func TestEncodeGoldenInput(t *testing.T) {
 }
 
 func TestExtendMatchGoldenInput(t *testing.T) {
-	src, err := ioutil.ReadFile(goldenText)
+	src, err := ioutil.ReadFile(filepath.Join(*testdata, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -585,7 +588,7 @@ func TestSameEncodingAsCppLongFiles(t *testing.T) {
 		if err := downloadBenchmarkFiles(t, tf.filename); err != nil {
 			t.Fatalf("failed to download testdata: %s", err)
 		}
-		data := readFile(t, filepath.Join(benchDir, tf.filename))
+		data := readFile(t, filepath.Join(*testdata, benchDir, tf.filename))
 		if n := tf.sizeLimit; 0 < n && n < len(data) {
 			data = data[:n]
 		}
@@ -1212,12 +1215,13 @@ const (
 	// The benchmark data files are at this canonical URL.
 	benchURL = "https://raw.githubusercontent.com/google/snappy/master/testdata/"
 
-	// They are copied to this local directory.
-	benchDir = "testdata/bench"
+	// They are copied to this local directory under testdata.
+	benchDir = "bench"
 )
 
 func downloadBenchmarkFiles(b testing.TB, basename string) (errRet error) {
-	filename := filepath.Join(benchDir, basename)
+	tdBenchDir := filepath.Join(*testdata, benchDir)
+	filename := filepath.Join(tdBenchDir, basename)
 	if stat, err := os.Stat(filename); err == nil && stat.Size() != 0 {
 		return nil
 	}
@@ -1227,8 +1231,8 @@ func downloadBenchmarkFiles(b testing.TB, basename string) (errRet error) {
 	}
 	// Download the official snappy C++ implementation reference test data
 	// files for benchmarking.
-	if err := os.MkdirAll(benchDir, 0777); err != nil && !os.IsExist(err) {
-		return fmt.Errorf("failed to create %s: %s", benchDir, err)
+	if err := os.MkdirAll(tdBenchDir, 0777); err != nil && !os.IsExist(err) {
+		return fmt.Errorf("failed to create %s: %s", tdBenchDir, err)
 	}
 
 	f, err := os.Create(filename)
@@ -1261,7 +1265,7 @@ func benchFile(b *testing.B, i int, decode bool) {
 	if err := downloadBenchmarkFiles(b, testFiles[i].filename); err != nil {
 		b.Fatalf("failed to download testdata: %s", err)
 	}
-	data := readFile(b, filepath.Join(benchDir, testFiles[i].filename))
+	data := readFile(b, filepath.Join(*testdata, benchDir, testFiles[i].filename))
 	if n := testFiles[i].sizeLimit; 0 < n && n < len(data) {
 		data = data[:n]
 	}
