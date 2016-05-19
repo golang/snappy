@@ -1306,7 +1306,8 @@ func Benchmark_ZFlat10(b *testing.B) { benchFile(b, 10, false) }
 func Benchmark_ZFlat11(b *testing.B) { benchFile(b, 11, false) }
 
 func BenchmarkExtendMatch(b *testing.B) {
-	src, err := ioutil.ReadFile(goldenText)
+	tDir := filepath.FromSlash(*testdataDir)
+	src, err := ioutil.ReadFile(filepath.Join(tDir, goldenText))
 	if err != nil {
 		b.Fatalf("ReadFile: %v", err)
 	}
