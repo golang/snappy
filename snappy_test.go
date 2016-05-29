@@ -257,10 +257,10 @@ func TestDecode(t *testing.T) {
 		"",
 		ErrCorrupt,
 	}, {
-		`decodedLen=4; tagCopy4; unsupported COPY_4 tag`,
-		"\x04" + "\x03\x00\x00\x00\x00",
+		`decodedLen=4; tagCopy4, 4 extra length|offset bytes; not enough extra bytes`,
+		"\x04" + "\x03\x00\x00\x00",
 		"",
-		errUnsupportedCopy4Tag,
+		ErrCorrupt,
 	}, {
 		`decodedLen=4; tagLiteral (4 bytes "abcd"); valid input`,
 		"\x04" + "\x0cabcd",
@@ -309,6 +309,11 @@ func TestDecode(t *testing.T) {
 	}, {
 		`decodedLen=6; tagLiteral (4 bytes "abcd"); tagCopy2; length=2 offset=3; valid input`,
 		"\x06" + "\x0cabcd" + "\x06\x03\x00",
+		"abcdbc",
+		nil,
+	}, {
+		`decodedLen=6; tagLiteral (4 bytes "abcd"); tagCopy4; length=2 offset=3; valid input`,
+		"\x06" + "\x0cabcd" + "\x07\x03\x00\x00\x00",
 		"abcdbc",
 		nil,
 	}}
@@ -364,6 +369,34 @@ loop:
 				t.Errorf("#%d (%s): Decode overrun: dBuf[%d] was modified: got %#02x, want %#02x\ndBuf: % x",
 					i, tc.desc, j, x, w, dBuf)
 				continue loop
+			}
+		}
+	}
+}
+
+func TestDecodeCopy4(t *testing.T) {
+	dots := strings.Repeat(".", 65536)
+
+	input := strings.Join([]string{
+		"\x89\x80\x04",         // decodedLen = 65545.
+		"\x0cpqrs",             // 4-byte literal "pqrs".
+		"\xf4\xff\xff" + dots,  // 65536-byte literal dots.
+		"\x13\x04\x00\x01\x00", // tagCopy4; length=5 offset=65540.
+	}, "")
+
+	gotBytes, err := Decode(nil, []byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(gotBytes)
+	want := "pqrs" + dots + "pqrs."
+	if len(got) != len(want) {
+		t.Fatalf("got %d bytes, want %d", len(got), len(want))
+	}
+	if got != want {
+		for i := 0; i < len(got); i++ {
+			if g, w := got[i], want[i]; g != w {
+				t.Fatalf("byte #%d: got %#02x, want %#02x", i, g, w)
 			}
 		}
 	}
