@@ -35,7 +35,7 @@
 //
 // The d variable is implicitly DI - R8,  and len(dst)-d is R10 - DI.
 // The s variable is implicitly SI - R11, and len(src)-s is R13 - SI.
-TEXT ·decode(SB), NOSPLIT, $48-56
+TEXT ·decode(SB), NOSPLIT, $24-56
 	// Initialize SI, DI and R8-R13.
 	MOVQ dst_base+0(FP), R8
 	MOVQ dst_len+8(FP), R9
@@ -151,16 +151,13 @@ callMemmove:
 	MOVQ DI, 0(SP)
 	MOVQ SI, 8(SP)
 	MOVQ CX, 16(SP)
-	MOVQ DI, 24(SP)
-	MOVQ SI, 32(SP)
-	MOVQ CX, 40(SP)
 	CALL runtime·memmove(SB)
 
 	// Restore local variables: unspill registers from the stack and
 	// re-calculate R8-R13.
-	MOVQ 24(SP), DI
-	MOVQ 32(SP), SI
-	MOVQ 40(SP), CX
+	MOVQ 0(SP), DI
+	MOVQ 8(SP), SI
+	MOVQ 16(SP), CX
 	MOVQ dst_base+0(FP), R8
 	MOVQ dst_len+8(FP), R9
 	MOVQ R8, R10
