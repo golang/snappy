@@ -637,7 +637,7 @@ func TestSameEncodingAsCppLongFiles(t *testing.T) {
 	}
 	if failed {
 		t.Errorf("was the snappytool program built against the C++ snappy library version " +
-			"d53de187 or later, commited on 2016-04-05? See " +
+			"d53de187 or later, committed on 2016-04-05? See " +
 			"https://github.com/google/snappy/commit/d53de18799418e113e44444252a39b12a0e4e0cc")
 	}
 }
