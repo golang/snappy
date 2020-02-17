@@ -1032,6 +1032,71 @@ func TestReaderReset(t *testing.T) {
 	}
 }
 
+func TestReaderReadByte(t *testing.T) {
+	// Test all 32 possible sub-sequences of these 5 input slices prefixed by
+	// their size encoded as a uvarint.
+	//
+	// Their lengths sum to 400,000, which is over 6 times the Writer ibuf
+	// capacity: 6 * maxBlockSize is 393,216.
+	inputs := [][]byte{
+		bytes.Repeat([]byte{'a'}, 40000),
+		bytes.Repeat([]byte{'b'}, 150000),
+		bytes.Repeat([]byte{'c'}, 60000),
+		bytes.Repeat([]byte{'d'}, 120000),
+		bytes.Repeat([]byte{'e'}, 30000),
+	}
+loop:
+	for i := 0; i < 1<<uint(len(inputs)); i++ {
+		var want []int
+		buf := new(bytes.Buffer)
+		w := NewBufferedWriter(buf)
+		p := make([]byte, binary.MaxVarintLen64)
+		for j, input := range inputs {
+			if i&(1<<uint(j)) == 0 {
+				continue
+			}
+			n := binary.PutUvarint(p, uint64(len(input)))
+			if _, err := w.Write(p[:n]); err != nil {
+				t.Errorf("i=%#02x: j=%d: Write Uvarint: %v", i, j, err)
+				continue loop
+			}
+			if _, err := w.Write(input); err != nil {
+				t.Errorf("i=%#02x: j=%d: Write: %v", i, j, err)
+				continue loop
+			}
+			want = append(want, j)
+		}
+		if err := w.Close(); err != nil {
+			t.Errorf("i=%#02x: Close: %v", i, err)
+			continue
+		}
+		r := NewReader(buf)
+		for _, j := range want {
+			size, err := binary.ReadUvarint(r)
+			if err != nil {
+				t.Errorf("i=%#02x: ReadUvarint: %v", i, err)
+				continue loop
+			}
+			if wantedSize := uint64(len(inputs[j])); size != wantedSize {
+				t.Errorf("i=%#02x: expected size %d, got %d", i, wantedSize, size)
+				continue loop
+			}
+			got := make([]byte, size)
+			if _, err := io.ReadFull(r, got); err != nil {
+				t.Errorf("i=%#02x: ReadFull: %v", i, err)
+				continue loop
+			}
+			if err := cmp(got, inputs[j]); err != nil {
+				t.Errorf("i=%#02x: %v", i, err)
+				continue
+			}
+		}
+		if _, err := r.ReadByte(); err != io.EOF {
+			t.Errorf("i=%#02x: expected size EOF, got %v", i, err)
+		}
+	}
+}
+
 func TestWriterReset(t *testing.T) {
 	gold := bytes.Repeat([]byte("Not all those who wander are lost;\n"), 10000)
 	const n = 20
