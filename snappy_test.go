@@ -1032,6 +1032,48 @@ func TestReaderReset(t *testing.T) {
 	}
 }
 
+func TestReaderResetReadUnencoded(t *testing.T) {
+	gold := bytes.Repeat([]byte("All that is gold does not glitter,\n"), 10000)
+	buf := new(bytes.Buffer)
+	if _, err := NewWriter(buf).Write(gold); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	encoded, invalid, partial := buf.String(), "invalid", "partial"
+	r := NewReaderAcceptUnencoded(nil)
+	for i, s := range []string{encoded, invalid, partial, encoded, partial, invalid, encoded, encoded} {
+		if s == partial {
+			r.Reset(strings.NewReader(encoded))
+			if _, err := r.Read(make([]byte, 101)); err != nil {
+				t.Errorf("#%d: %v", i, err)
+				continue
+			}
+			continue
+		}
+		r.Reset(strings.NewReader(s))
+		got, err := ioutil.ReadAll(r)
+		switch s {
+		case encoded:
+			if err != nil {
+				t.Errorf("#%d: %v", i, err)
+				continue
+			}
+			if err := cmp(got, gold); err != nil {
+				t.Errorf("#%d: %v", i, err)
+				continue
+			}
+		case invalid:
+			if err != nil {
+				t.Errorf("#%d: %v", i, err)
+				continue
+			}
+			if err := cmp(got, []byte("invalid")); err != nil {
+				t.Errorf("#%d: %v", i, err)
+				continue
+			}
+		}
+	}
+}
+
 func TestWriterReset(t *testing.T) {
 	gold := bytes.Repeat([]byte("Not all those who wander are lost;\n"), 10000)
 	const n = 20

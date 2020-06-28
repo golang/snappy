@@ -19,6 +19,8 @@ var (
 	ErrUnsupported = errors.New("snappy: unsupported input")
 
 	errUnsupportedLiteralLength = errors.New("snappy: unsupported literal length")
+	errMultipleHeaderRead       = errors.New("snappy: multiple header read")
+	errMisreadHeaderSize        = errors.New("snappy: header size misread")
 )
 
 // DecodedLen returns the length of the decoded block.
@@ -77,10 +79,23 @@ func Decode(dst, src []byte) ([]byte, error) {
 // format described at
 // https://github.com/google/snappy/blob/master/framing_format.txt
 func NewReader(r io.Reader) *Reader {
+	return newReader(r, false)
+}
+
+// NewReaderAcceptUnencoded returns a new Reader that attempts to
+// decompress from r, using the framing format at
+// https://github.com/google/snappy/blob/master/framing_format.txt
+// If r is not compressed, this instead yields the raw data from r.
+func NewReaderAcceptUnencoded(r io.Reader) *Reader {
+	return newReader(r, true)
+}
+
+func newReader(r io.Reader, acceptUnencoded bool) *Reader {
 	return &Reader{
-		r:       r,
-		decoded: make([]byte, maxBlockSize),
-		buf:     make([]byte, maxEncodedLenOfMaxBlockSize+checksumSize),
+		r:               r,
+		acceptUnencoded: acceptUnencoded,
+		decoded:         make([]byte, maxBlockSize),
+		buf:             make([]byte, maxEncodedLenOfMaxBlockSize+checksumSize),
 	}
 }
 
@@ -93,8 +108,11 @@ type Reader struct {
 	decoded []byte
 	buf     []byte
 	// decoded[i:j] contains decoded bytes that have not yet been passed on.
-	i, j       int
-	readHeader bool
+	i, j int
+
+	acceptUnencoded bool
+	readHeader      bool
+	readUnencoded   bool
 }
 
 // Reset discards any buffered data, resets all state, and switches the Snappy
@@ -106,6 +124,7 @@ func (r *Reader) Reset(reader io.Reader) {
 	r.i = 0
 	r.j = 0
 	r.readHeader = false
+	r.readUnencoded = false
 }
 
 func (r *Reader) readFull(p []byte, allowEOF bool) (ok bool) {
@@ -123,6 +142,135 @@ func (r *Reader) Read(p []byte) (int, error) {
 	if r.err != nil {
 		return 0, r.err
 	}
+	if r.readUnencoded {
+		size, err := r.r.Read(p)
+		r.err = err
+		return size, err
+	}
+	if !r.readHeader {
+		size, err := r.readStreamHeader(p)
+		if err != nil {
+			r.err = err
+			return 0, r.err
+		}
+		if r.readUnencoded {
+			n, err := r.r.Read(p[size:])
+			if err != nil {
+				return 0, err
+			}
+			copy(p, r.buf[:size])
+			return n + size, err
+		}
+	}
+	return r.read(p)
+}
+
+func (r *Reader) tryReadFull(p []byte) (int, bool, error) {
+	var (
+		min = len(p)
+		n   = 0
+		err error
+	)
+	if len(p) < min {
+		return min, false, nil
+	}
+	for n < min && err == nil {
+		var nn int
+		nn, err = r.r.Read(p[n:])
+		n += nn
+	}
+	if err != nil {
+		if err == io.EOF {
+			return n, false, nil
+		}
+		return n, false, err
+	}
+	if n < min {
+		return n, false, nil
+	}
+	if n > min {
+		return n, false, errMisreadHeaderSize
+	}
+	return n, true, nil
+}
+
+func (r *Reader) readStreamHeader(p []byte) (int, error) {
+	if r.readHeader {
+		return 0, errMultipleHeaderRead
+	}
+	r.readHeader = true
+	n, success, err := r.tryReadFull(r.buf[:4])
+	if err != nil {
+		r.err = err
+		return n, r.err
+	}
+	if n == 0 {
+		return 0, nil
+	}
+	if !success {
+		if r.acceptUnencoded {
+			r.readUnencoded = true
+			return n, nil
+		}
+		r.err = ErrUnsupported
+		return 0, r.err
+	}
+	chunkType := r.buf[0]
+	if chunkType != chunkTypeStreamIdentifier {
+		if r.acceptUnencoded {
+			r.readUnencoded = true
+			return n, nil
+		}
+		r.err = ErrCorrupt
+		return 0, r.err
+	}
+	chunkLen := int(r.buf[1]) | int(r.buf[2])<<8 | int(r.buf[3])<<16
+	if chunkLen > len(r.buf) {
+		if r.acceptUnencoded {
+			r.readUnencoded = true
+			return n, nil
+		}
+		r.err = ErrUnsupported
+		return 0, r.err
+	}
+	// Section 4.1. Stream identifier (chunk type 0xff).
+	// https://github.com/google/snappy/blob/master/framing_format.txt
+	if chunkLen != len(magicBody) {
+		if r.acceptUnencoded {
+			r.readUnencoded = true
+			return n, nil
+		}
+		r.err = ErrCorrupt
+		return 0, r.err
+	}
+	nn, success, err := r.tryReadFull(r.buf[4 : 4+len(magicBody)])
+	n += nn
+	if err != nil {
+		r.err = err
+		return 0, r.err
+	}
+	if !success {
+		if r.acceptUnencoded {
+			r.readUnencoded = true
+			return n, nil
+		}
+		r.err = ErrCorrupt
+		return 0, r.err
+	}
+	for i := 0; i < len(magicBody); i++ {
+		if r.buf[i+4] != magicBody[i] {
+			if r.acceptUnencoded {
+				r.readUnencoded = true
+				return n, nil
+			}
+			r.err = ErrCorrupt
+			return 0, r.err
+		}
+	}
+	return n, nil
+}
+
+func (r *Reader) read(p []byte) (int, error) {
 	for {
 		if r.i < r.j {
 			n := copy(p, r.decoded[r.i:r.j])
