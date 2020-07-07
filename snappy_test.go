@@ -316,6 +316,11 @@ func TestDecode(t *testing.T) {
 		"\x06" + "\x0cabcd" + "\x07\x03\x00\x00\x00",
 		"abcdbc",
 		nil,
+	}, {
+		`decodedLen=0; tagCopy4, 4 extra length|offset bytes; with msb set (0x93); discovered by go-fuzz`,
+		"\x00\xfc000\x93",
+		"",
+		ErrCorrupt,
 	}}
 
 	const (
