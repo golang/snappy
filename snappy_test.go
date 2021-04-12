@@ -502,7 +502,7 @@ func TestDecodeLengthOffset(t *testing.T) {
 }
 
 const (
-	goldenText       = "Mark.Twain-Tom.Sawyer.txt"
+	goldenText       = "Isaac.Newton-Opticks.txt"
 	goldenCompressed = goldenText + ".rawsnappy"
 )
 
