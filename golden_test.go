@@ -6,7 +6,7 @@ package snappy
 
 // extendMatchGoldenTestCases is the i and j arguments, and the returned value,
 // for every extendMatch call issued when encoding the
-// testdata/Mark.Twain-Tom.Sawyer.txt file. It is used to benchmark the
+// testdata/Isaac.Newton-Opticks.txt file. It is used to benchmark the
 // extendMatch implementation.
 //
 // It was generated manually by adding some print statements to the (pure Go)
