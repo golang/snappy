@@ -1102,6 +1102,32 @@ loop:
 	}
 }
 
+func TestReaderClose(t *testing.T) {
+	type testdata struct {
+		data string
+		err  error
+	}
+
+	tests := []testdata{
+		{"\x61\x62\x63\x64", ErrCorrupt},
+		{magicChunk +
+			"\x01\x08\x00\x00" +
+			"\x68\x10\xe6\xb6" +
+			"\x61\x62\x63\x64",
+			nil,
+		},
+	}
+
+	for i, test := range tests {
+		r := NewReader(strings.NewReader(test.data))
+		io.ReadAll(r)
+		err := r.Close()
+		if err != test.err {
+			t.Errorf("Test %d failed, expected %s, got %s", i, test.err, err)
+		}
+	}
+}
+
 func TestWriterReset(t *testing.T) {
 	gold := bytes.Repeat([]byte("Not all those who wander are lost;\n"), 10000)
 	const n = 20

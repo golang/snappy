@@ -262,3 +262,12 @@ func (r *Reader) ReadByte() (byte, error) {
 	r.i++
 	return c, nil
 }
+
+// Close satisfies the io.Closer interface
+func (r *Reader) Close() error {
+	if r.err != io.EOF {
+		return r.err
+	}
+
+	return nil
+}
