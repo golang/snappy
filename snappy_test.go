@@ -10,7 +10,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"os"
@@ -508,7 +507,7 @@ const (
 
 func TestDecodeGoldenInput(t *testing.T) {
 	tDir := filepath.FromSlash(*testdataDir)
-	src, err := ioutil.ReadFile(filepath.Join(tDir, goldenCompressed))
+	src, err := os.ReadFile(filepath.Join(tDir, goldenCompressed))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -516,7 +515,7 @@ func TestDecodeGoldenInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	want, err := ioutil.ReadFile(filepath.Join(tDir, goldenText))
+	want, err := os.ReadFile(filepath.Join(tDir, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -527,12 +526,12 @@ func TestDecodeGoldenInput(t *testing.T) {
 
 func TestEncodeGoldenInput(t *testing.T) {
 	tDir := filepath.FromSlash(*testdataDir)
-	src, err := ioutil.ReadFile(filepath.Join(tDir, goldenText))
+	src, err := os.ReadFile(filepath.Join(tDir, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
 	got := Encode(nil, src)
-	want, err := ioutil.ReadFile(filepath.Join(tDir, goldenCompressed))
+	want, err := os.ReadFile(filepath.Join(tDir, goldenCompressed))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -543,7 +542,7 @@ func TestEncodeGoldenInput(t *testing.T) {
 
 func TestExtendMatchGoldenInput(t *testing.T) {
 	tDir := filepath.FromSlash(*testdataDir)
-	src, err := ioutil.ReadFile(filepath.Join(tDir, goldenText))
+	src, err := os.ReadFile(filepath.Join(tDir, goldenText))
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -735,7 +734,7 @@ func TestFramingFormat(t *testing.T) {
 	if _, err := NewWriter(buf).Write(src); err != nil {
 		t.Fatalf("Write: encoding: %v", err)
 	}
-	dst, err := ioutil.ReadAll(NewReader(buf))
+	dst, err := io.ReadAll(NewReader(buf))
 	if err != nil {
 		t.Fatalf("ReadAll: decoding: %v", err)
 	}
@@ -930,7 +929,7 @@ loop:
 			t.Errorf("i=%#02x: Close: %v", i, err)
 			continue
 		}
-		got, err := ioutil.ReadAll(NewReader(buf))
+		got, err := io.ReadAll(NewReader(buf))
 		if err != nil {
 			t.Errorf("i=%#02x: ReadAll: %v", i, err)
 			continue
@@ -966,7 +965,7 @@ func TestReaderUncompressedDataOK(t *testing.T) {
 		"\x68\x10\xe6\xb6" + // Checksum.
 		"\x61\x62\x63\x64", // Uncompressed payload: "abcd".
 	))
-	g, err := ioutil.ReadAll(r)
+	g, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -980,7 +979,7 @@ func TestReaderUncompressedDataNoPayload(t *testing.T) {
 		"\x01\x04\x00\x00" + // Uncompressed chunk, 4 bytes long.
 		"", // No payload; corrupt input.
 	))
-	if _, err := ioutil.ReadAll(r); err != ErrCorrupt {
+	if _, err := io.ReadAll(r); err != ErrCorrupt {
 		t.Fatalf("got %v, want %v", err, ErrCorrupt)
 	}
 }
@@ -994,7 +993,7 @@ func TestReaderUncompressedDataTooLong(t *testing.T) {
 		"\x01\x05\x00\x01" + // Uncompressed chunk, n bytes long.
 		strings.Repeat("\x00", n),
 	))
-	if _, err := ioutil.ReadAll(r); err != ErrCorrupt {
+	if _, err := io.ReadAll(r); err != ErrCorrupt {
 		t.Fatalf("got %v, want %v", err, ErrCorrupt)
 	}
 }
@@ -1017,7 +1016,7 @@ func TestReaderReset(t *testing.T) {
 			continue
 		}
 		r.Reset(strings.NewReader(s))
-		got, err := ioutil.ReadAll(r)
+		got, err := io.ReadAll(r)
 		switch s {
 		case encoded:
 			if err != nil {
@@ -1132,7 +1131,7 @@ func TestWriterReset(t *testing.T) {
 					continue
 				}
 			}
-			got, err := ioutil.ReadAll(NewReader(buf))
+			got, err := io.ReadAll(NewReader(buf))
 			if err != nil {
 				t.Errorf("#%d: ReadAll: %v", i, err)
 				failed = true
@@ -1167,7 +1166,7 @@ func TestWriterResetWithoutFlush(t *testing.T) {
 	if err := w.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
-	got, err := ioutil.ReadAll(NewReader(buf1))
+	got, err := io.ReadAll(NewReader(buf1))
 	if err != nil {
 		t.Fatalf("ReadAll: %v", err)
 	}
@@ -1244,7 +1243,7 @@ func testOrBenchmark(b testing.TB) string {
 }
 
 func readFile(b testing.TB, filename string) []byte {
-	src, err := ioutil.ReadFile(filename)
+	src, err := os.ReadFile(filename)
 	if err != nil {
 		b.Skipf("skipping %s: %v", testOrBenchmark(b), err)
 	}
@@ -1410,7 +1409,7 @@ func Benchmark_ZFlat11(b *testing.B) { benchFile(b, 11, false) }
 
 func BenchmarkExtendMatch(b *testing.B) {
 	tDir := filepath.FromSlash(*testdataDir)
-	src, err := ioutil.ReadFile(filepath.Join(tDir, goldenText))
+	src, err := os.ReadFile(filepath.Join(tDir, goldenText))
 	if err != nil {
 		b.Fatalf("ReadFile: %v", err)
 	}
