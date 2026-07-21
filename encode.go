@@ -129,9 +129,12 @@ func NewWriter(w io.Writer) *Writer {
 // framing format described at
 // https://github.com/google/snappy/blob/master/framing_format.txt
 //
-// The Writer returned buffers writes. Users must call Close to guarantee all
-// data has been forwarded to the underlying io.Writer. They may also call
-// Flush zero or more times before calling Close.
+// The Writer returned buffers writes. Call Flush to guarantee all buffered
+// data has been forwarded to the underlying io.Writer; Flush may be called
+// zero or more times and the Writer remains usable for further Write calls.
+// Close also flushes, then marks the Writer closed so later Write/Flush
+// return an error. Prefer Close when finished, or Flush if the Writer will
+// keep receiving data.
 func NewBufferedWriter(w io.Writer) *Writer {
 	return &Writer{
 		w:    w,
