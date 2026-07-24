@@ -3,7 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
-	"io/ioutil"
+	"io"
 	"os"
 
 	"github.com/golang/snappy"
@@ -20,7 +20,7 @@ func run() error {
 		return errors.New("exactly one of -d or -e must be given")
 	}
 
-	in, err := ioutil.ReadAll(os.Stdin)
+	in, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return err
 	}
