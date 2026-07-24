@@ -35,7 +35,7 @@ func decodedLen(src []byte) (blockLen, headerLen int, err error) {
 		return 0, 0, ErrCorrupt
 	}
 
-	const wordSize = 32 << (^uint(0) >> 32 & 1)
+	const wordSize = 32 << (^uint(0) >> 63)
 	if wordSize == 32 && v > 0x7fffffff {
 		return 0, 0, ErrTooLarge
 	}
