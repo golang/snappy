@@ -1434,6 +1434,26 @@ func BenchmarkExtendMatch(b *testing.B) {
 	}
 }
 
+// compressibleData returns n bytes that compress about as well as ordinary
+// text, without depending on a corpus file the machine may not have.
+func compressibleData(n int) []byte {
+	r := rand.New(rand.NewSource(1))
+	words := make([][]byte, 256)
+	for i := range words {
+		w := make([]byte, 3+r.Intn(8))
+		for j := range w {
+			w[j] = byte('a' + r.Intn(26))
+		}
+		words[i] = w
+	}
+	dst := make([]byte, 0, n+16)
+	for len(dst) < n {
+		dst = append(dst, words[r.Intn(len(words))]...)
+		dst = append(dst, ' ')
+	}
+	return dst[:n]
+}
+
 // BenchmarkSTW reports the worst "stopping the world" pause a garbage
 // collection saw while a 64 MiB decode ran alongside it. The runtime never
 // treats assembly as an asynchronous preemption point, and a NOSPLIT function
@@ -1449,7 +1469,7 @@ func BenchmarkSTW(b *testing.B) {
 		b.Skipf("skipping benchmark: this Go runtime has no %s metric", sample[0].Name)
 	}
 
-	src := expand(readFile(b, "/usr/share/dict/words"), 64<<20)
+	src := compressibleData(64 << 20)
 	encoded := Encode(nil, src)
 	dst := make([]byte, len(src))
 
