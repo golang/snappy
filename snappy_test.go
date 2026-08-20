@@ -1443,11 +1443,16 @@ func BenchmarkExtendMatch(b *testing.B) {
 // this reports is not a throughput figure: the collector loop competes for the
 // same CPUs, and it gets to run far more often once the pause is fixed.
 func BenchmarkSTW(b *testing.B) {
+	sample := []metrics.Sample{{Name: "/sched/pauses/stopping/gc:seconds"}}
+	metrics.Read(sample)
+	if sample[0].Value.Kind() != metrics.KindFloat64Histogram {
+		b.Skipf("skipping benchmark: this Go runtime has no %s metric", sample[0].Name)
+	}
+
 	src := expand(readFile(b, "/usr/share/dict/words"), 64<<20)
 	encoded := Encode(nil, src)
 	dst := make([]byte, len(src))
 
-	sample := []metrics.Sample{{Name: "/sched/pauses/stopping/gc:seconds"}}
 	metrics.Read(sample)
 	before := append([]uint64(nil), sample[0].Value.Float64Histogram().Counts...)
 
@@ -1468,14 +1473,16 @@ func BenchmarkSTW(b *testing.B) {
 
 	b.SetBytes(int64(len(src)))
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := Decode(dst, encoded); err != nil {
-			b.Fatal(err)
-		}
+	var decodeErr error
+	for i := 0; i < b.N && decodeErr == nil; i++ {
+		_, decodeErr = Decode(dst, encoded)
 	}
 	b.StopTimer()
 	close(stop)
 	wg.Wait()
+	if decodeErr != nil {
+		b.Fatal(decodeErr)
+	}
 
 	metrics.Read(sample)
 	h := sample[0].Value.Float64Histogram()

@@ -6,7 +6,7 @@
 
 package snappy
 
-// decode writes the decoding of src to dst[d:]. It assumes that the
+// decode writes the decoding of src to dst[dStart:]. It assumes that the
 // varint-encoded length of the decompressed bytes has already been read.
 //
 // decode stops once d reaches dLimit, always at a tag boundary, so that a

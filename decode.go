@@ -74,29 +74,25 @@ func Decode(dst, src []byte) ([]byte, error) {
 	}
 	src = src[s:]
 	if dLen <= maxDecodeChunkSize {
-		// Small enough that one call cannot hold up a collection for long.
+		// One call is already short enough; skip the chunk loop.
 		n, d, errCode := decode(dst, src, 0, dLen)
-		if errCode == decodeErrCodeUnsupportedLiteralLength {
-			return nil, errUnsupportedLiteralLength
+		if errCode != 0 {
+			return nil, decodeError(errCode)
 		}
-		if errCode != 0 || n != len(src) || d != dLen {
+		if n != len(src) || d != dLen {
 			return nil, ErrCorrupt
 		}
 		return dst, nil
 	}
 	d := 0
 	for len(src) > 0 {
-		dLimit := d + maxDecodeChunkSize
-		if dLimit > len(dst) {
-			dLimit = len(dst)
+		dLimit := len(dst)
+		if dLimit-d > maxDecodeChunkSize {
+			dLimit = d + maxDecodeChunkSize
 		}
 		n, dNext, errCode := decode(dst, src, d, dLimit)
-		switch errCode {
-		case 0:
-		case decodeErrCodeUnsupportedLiteralLength:
-			return nil, errUnsupportedLiteralLength
-		default:
-			return nil, ErrCorrupt
+		if errCode != 0 {
+			return nil, decodeError(errCode)
 		}
 		if n == 0 {
 			// src still holds tags that dst has no room for.
@@ -108,6 +104,13 @@ func Decode(dst, src []byte) ([]byte, error) {
 		return nil, ErrCorrupt
 	}
 	return dst, nil
+}
+
+func decodeError(errCode int) error {
+	if errCode == decodeErrCodeUnsupportedLiteralLength {
+		return errUnsupportedLiteralLength
+	}
+	return ErrCorrupt
 }
 
 // NewReader returns a new Reader that decompresses from r, using the framing

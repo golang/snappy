@@ -22,15 +22,13 @@
 //	- SI	&src[s]
 //	- DI	&dst[d]
 //	+ R8	dst_base
-//	+ R9	dst_len
+//	+ R9	dst_base + dLimit
 //	+ R10	dst_base + dst_len
 //	+ R11	src_base
 //	+ R12	src_len
 //	+ R13	src_base + src_len
 //	- R14	used by doCopy
 //	- R15	used by doCopy
-//
-// 48(SP) holds dst_base + dLimit. There is no free register left for it.
 //
 // The registers R8-R13 (marked with a "+") are set at the start of the
 // function, and after a CALL returns, and are not otherwise modified.
@@ -41,7 +39,7 @@
 // preemption point, so the stack check that a normal prologue gets is the only
 // place a collection can preempt a decode. Decode relies on it by calling this
 // once per chunk of output rather than once per buffer.
-TEXT ·decode(SB), $56-88
+TEXT ·decode(SB), $48-88
 	// Initialize SI, DI and R8-R13.
 	MOVQ dst_base+0(FP), R8
 	MOVQ dst_len+8(FP), R9
@@ -54,15 +52,14 @@ TEXT ·decode(SB), $56-88
 	MOVQ R11, R13
 	ADDQ R12, R13
 	ADDQ dStart+48(FP), DI
-	MOVQ dLimit+56(FP), AX
-	ADDQ R8, AX
-	MOVQ AX, 48(SP)
+	MOVQ dLimit+56(FP), R9
+	ADDQ R8, R9
 
 loop:
 	// for s < len(src) && d < dLimit
 	CMPQ SI, R13
 	JEQ  end
-	CMPQ DI, 48(SP)
+	CMPQ DI, R9
 	JAE  end
 
 	// CX = uint32(src[s])
@@ -177,6 +174,8 @@ callMemmove:
 	MOVQ dst_len+8(FP), R9
 	MOVQ R8, R10
 	ADDQ R9, R10
+	MOVQ dLimit+56(FP), R9
+	ADDQ R8, R9
 	MOVQ src_base+24(FP), R11
 	MOVQ src_len+32(FP), R12
 	MOVQ R11, R13
