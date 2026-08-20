@@ -12,4 +12,4 @@ package snappy
 // decode has the same semantics as in decode_other.go.
 //
 //go:noescape
-func decode(dst, src []byte) int
+func decode(dst, src []byte, dStart, sLimit int) (s, d, errCode int)

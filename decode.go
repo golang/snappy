@@ -47,6 +47,18 @@ const (
 	decodeErrCodeUnsupportedLiteralLength = 2
 )
 
+// maxDecodeChunkSize is the most input one decode call may consume. decode is
+// assembly on some architectures, and assembly is never an asynchronous
+// preemption point, so an unbounded call holds up every goroutine in the
+// process for as long as it runs whenever the collector stops the world.
+// Encode is already bounded the same way: it hands at most maxBlockSize to one
+// call to encodeBlock.
+//
+// The bound is on input because that is the loop condition decode already
+// tests, so it costs no extra work per tag. A copy tag expands by at most 64/3,
+// so this caps one call at a little over 1 MiB of output.
+const maxDecodeChunkSize = 64 * 1024
+
 // Decode returns the decoded form of src. The returned slice may be a sub-
 // slice of dst if dst was large enough to hold the entire decoded block.
 // Otherwise, a newly allocated slice will be returned.
@@ -64,13 +76,45 @@ func Decode(dst, src []byte) ([]byte, error) {
 	} else {
 		dst = make([]byte, dLen)
 	}
-	switch decode(dst, src[s:]) {
-	case 0:
+	src = src[s:]
+	if len(src) <= maxDecodeChunkSize {
+		// One call is already short enough; skip the chunk loop.
+		n, d, errCode := decode(dst, src, 0, len(src))
+		if errCode != 0 {
+			return nil, decodeError(errCode)
+		}
+		if n != len(src) || d != dLen {
+			return nil, ErrCorrupt
+		}
 		return dst, nil
-	case decodeErrCodeUnsupportedLiteralLength:
-		return nil, errUnsupportedLiteralLength
 	}
-	return nil, ErrCorrupt
+	d := 0
+	for len(src) > 0 {
+		sLimit := len(src)
+		if sLimit > maxDecodeChunkSize {
+			sLimit = maxDecodeChunkSize
+		}
+		n, dNext, errCode := decode(dst, src, d, sLimit)
+		if errCode != 0 {
+			return nil, decodeError(errCode)
+		}
+		if n == 0 {
+			// src still holds tags that dst has no room for.
+			return nil, ErrCorrupt
+		}
+		src, d = src[n:], dNext
+	}
+	if d != len(dst) {
+		return nil, ErrCorrupt
+	}
+	return dst, nil
+}
+
+func decodeError(errCode int) error {
+	if errCode == decodeErrCodeUnsupportedLiteralLength {
+		return errUnsupportedLiteralLength
+	}
+	return ErrCorrupt
 }
 
 // NewReader returns a new Reader that decompresses from r, using the framing
