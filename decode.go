@@ -53,7 +53,7 @@ const (
 // process for as long as it runs whenever the collector stops the world.
 // Encode is already bounded the same way: it hands at most maxBlockSize to one
 // call to encodeBlock.
-const maxDecodeChunkSize = 1 << 16
+const maxDecodeChunkSize = 64 * 1024
 
 // Decode returns the decoded form of src. The returned slice may be a sub-
 // slice of dst if dst was large enough to hold the entire decoded block.
