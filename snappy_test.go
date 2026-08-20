@@ -11,13 +11,16 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"runtime/metrics"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -1429,4 +1432,63 @@ func BenchmarkExtendMatch(b *testing.B) {
 			extendMatch(src, tc.i, tc.j)
 		}
 	}
+}
+
+// BenchmarkSTW reports the worst "stopping the world" pause a garbage
+// collection saw while a 64 MiB decode ran alongside it. The runtime never
+// treats assembly as an asynchronous preemption point, and a NOSPLIT function
+// has no cooperative one either, so a decode call that covers the whole input
+// holds up every collection in the process for as long as it runs. Run with
+// GOMAXPROCS>=2 so the decode and the collector actually overlap. The ns/op
+// this reports is not a throughput figure: the collector loop competes for the
+// same CPUs, and it gets to run far more often once the pause is fixed.
+func BenchmarkSTW(b *testing.B) {
+	src := expand(readFile(b, "/usr/share/dict/words"), 64<<20)
+	encoded := Encode(nil, src)
+	dst := make([]byte, len(src))
+
+	sample := []metrics.Sample{{Name: "/sched/pauses/stopping/gc:seconds"}}
+	metrics.Read(sample)
+	before := append([]uint64(nil), sample[0].Value.Float64Histogram().Counts...)
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			runtime.GC()
+		}
+	}()
+
+	b.SetBytes(int64(len(src)))
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := Decode(dst, encoded); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.StopTimer()
+	close(stop)
+	wg.Wait()
+
+	metrics.Read(sample)
+	h := sample[0].Value.Float64Histogram()
+	worst := 0.0
+	for i, c := range h.Counts {
+		if c <= before[i] {
+			continue
+		}
+		if upper := h.Buckets[i+1]; !math.IsInf(upper, 1) {
+			worst = upper
+		} else {
+			worst = h.Buckets[i]
+		}
+	}
+	b.ReportMetric(worst, "worstpause-sec")
 }

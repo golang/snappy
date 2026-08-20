@@ -11,7 +11,7 @@
 // The asm code generally follows the pure Go code in decode_other.go, except
 // where marked with a "!!!".
 
-// func decode(dst, src []byte) int
+// func decode(dst, src []byte, dStart, dLimit int) (s, d, errCode int)
 //
 // All local variables fit into registers. The non-zero stack size is only to
 // spill registers and push args when issuing a CALL. The register allocation:
@@ -30,12 +30,18 @@
 //	- R14	used by doCopy
 //	- R15	used by doCopy
 //
+// 48(SP) holds dst_base + dLimit. There is no free register left for it.
+//
 // The registers R8-R13 (marked with a "+") are set at the start of the
 // function, and after a CALL returns, and are not otherwise modified.
 //
 // The d variable is implicitly DI - R8,  and len(dst)-d is R10 - DI.
 // The s variable is implicitly SI - R11, and len(src)-s is R13 - SI.
-TEXT ·decode(SB), NOSPLIT, $48-56
+// decode is deliberately not NOSPLIT. Assembly is never an asynchronous
+// preemption point, so the stack check that a normal prologue gets is the only
+// place a collection can preempt a decode. Decode relies on it by calling this
+// once per chunk of output rather than once per buffer.
+TEXT ·decode(SB), $56-88
 	// Initialize SI, DI and R8-R13.
 	MOVQ dst_base+0(FP), R8
 	MOVQ dst_len+8(FP), R9
@@ -47,11 +53,17 @@ TEXT ·decode(SB), NOSPLIT, $48-56
 	MOVQ R11, SI
 	MOVQ R11, R13
 	ADDQ R12, R13
+	ADDQ dStart+48(FP), DI
+	MOVQ dLimit+56(FP), AX
+	ADDQ R8, AX
+	MOVQ AX, 48(SP)
 
 loop:
-	// for s < len(src)
+	// for s < len(src) && d < dLimit
 	CMPQ SI, R13
 	JEQ  end
+	CMPQ DI, 48(SP)
+	JAE  end
 
 	// CX = uint32(src[s])
 	//
@@ -474,17 +486,19 @@ verySlowForwardCopy:
 // ----------------------------------------
 
 end:
-	// This is the end of the "for s < len(src)".
+	// This is the end of the "for s < len(src) && d < dLimit".
 	//
-	// if d != len(dst) { etc }
-	CMPQ DI, R10
-	JNE  errCorrupt
-
-	// return 0
-	MOVQ $0, ret+48(FP)
+	// return s, d, 0
+	SUBQ R11, SI
+	SUBQ R8, DI
+	MOVQ SI, s+64(FP)
+	MOVQ DI, d+72(FP)
+	MOVQ $0, errCode+80(FP)
 	RET
 
 errCorrupt:
-	// return decodeErrCodeCorrupt
-	MOVQ $1, ret+48(FP)
+	// return 0, 0, decodeErrCodeCorrupt
+	MOVQ $0, s+64(FP)
+	MOVQ $0, d+72(FP)
+	MOVQ $1, errCode+80(FP)
 	RET

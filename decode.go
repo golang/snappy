@@ -47,6 +47,14 @@ const (
 	decodeErrCodeUnsupportedLiteralLength = 2
 )
 
+// maxDecodeChunkSize is the most output one decode call may produce. decode is
+// assembly on some architectures, and assembly is never an asynchronous
+// preemption point, so an unbounded call holds up every goroutine in the
+// process for as long as it runs whenever the collector stops the world.
+// Encode is already bounded the same way: it hands at most maxBlockSize to one
+// call to encodeBlock.
+const maxDecodeChunkSize = 1 << 16
+
 // Decode returns the decoded form of src. The returned slice may be a sub-
 // slice of dst if dst was large enough to hold the entire decoded block.
 // Otherwise, a newly allocated slice will be returned.
@@ -64,13 +72,42 @@ func Decode(dst, src []byte) ([]byte, error) {
 	} else {
 		dst = make([]byte, dLen)
 	}
-	switch decode(dst, src[s:]) {
-	case 0:
+	src = src[s:]
+	if dLen <= maxDecodeChunkSize {
+		// Small enough that one call cannot hold up a collection for long.
+		n, d, errCode := decode(dst, src, 0, dLen)
+		if errCode == decodeErrCodeUnsupportedLiteralLength {
+			return nil, errUnsupportedLiteralLength
+		}
+		if errCode != 0 || n != len(src) || d != dLen {
+			return nil, ErrCorrupt
+		}
 		return dst, nil
-	case decodeErrCodeUnsupportedLiteralLength:
-		return nil, errUnsupportedLiteralLength
 	}
-	return nil, ErrCorrupt
+	d := 0
+	for len(src) > 0 {
+		dLimit := d + maxDecodeChunkSize
+		if dLimit > len(dst) {
+			dLimit = len(dst)
+		}
+		n, dNext, errCode := decode(dst, src, d, dLimit)
+		switch errCode {
+		case 0:
+		case decodeErrCodeUnsupportedLiteralLength:
+			return nil, errUnsupportedLiteralLength
+		default:
+			return nil, ErrCorrupt
+		}
+		if n == 0 {
+			// src still holds tags that dst has no room for.
+			return nil, ErrCorrupt
+		}
+		src, d = src[n:], dNext
+	}
+	if d != len(dst) {
+		return nil, ErrCorrupt
+	}
+	return dst, nil
 }
 
 // NewReader returns a new Reader that decompresses from r, using the framing

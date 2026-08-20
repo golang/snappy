@@ -11,7 +11,7 @@
 // The asm code generally follows the pure Go code in decode_other.go, except
 // where marked with a "!!!".
 
-// func decode(dst, src []byte) int
+// func decode(dst, src []byte, dStart, dLimit int) (s, d, errCode int)
 //
 // All local variables fit into registers. The non-zero stack size is only to
 // spill registers and push args when issuing a CALL. The register allocation:
@@ -27,15 +27,20 @@
 //	+ R11	src_base
 //	+ R12	src_len
 //	+ R13	src_base + src_len
+//	+ R19	dst_base + dLimit
 //	- R14	used by doCopy
 //	- R15	used by doCopy
 //
-// The registers R8-R13 (marked with a "+") are set at the start of the
+// The registers R8-R13 and R19 (marked with a "+") are set at the start of the
 // function, and after a CALL returns, and are not otherwise modified.
 //
 // The d variable is implicitly R7 - R8,  and len(dst)-d is R10 - R7.
 // The s variable is implicitly R6 - R11, and len(src)-s is R13 - R6.
-TEXT ·decode(SB), NOSPLIT, $56-56
+// decode is deliberately not NOSPLIT. Assembly is never an asynchronous
+// preemption point, so the stack check that a normal prologue gets is the only
+// place a collection can preempt a decode. Decode relies on it by calling this
+// once per chunk of output rather than once per buffer.
+TEXT ·decode(SB), $56-88
 	// Initialize R6, R7 and R8-R13.
 	MOVD dst_base+0(FP), R8
 	MOVD dst_len+8(FP), R9
@@ -47,11 +52,17 @@ TEXT ·decode(SB), NOSPLIT, $56-56
 	MOVD R11, R6
 	MOVD R11, R13
 	ADD  R12, R13, R13
+	MOVD dStart+48(FP), R2
+	ADD  R2, R7, R7
+	MOVD dLimit+56(FP), R19
+	ADD  R8, R19, R19
 
 loop:
-	// for s < len(src)
+	// for s < len(src) && d < dLimit
 	CMP R13, R6
 	BEQ end
+	CMP R19, R7
+	BHS end
 
 	// R4 = uint32(src[s])
 	//
@@ -171,6 +182,8 @@ callMemmove:
 	MOVD src_len+32(FP), R12
 	MOVD R11, R13
 	ADD  R12, R13, R13
+	MOVD dLimit+56(FP), R19
+	ADD  R8, R19, R19
 
 	// d += length
 	// s += length
@@ -477,18 +490,21 @@ verySlowForwardCopy:
 	// ----------------------------------------
 
 end:
-	// This is the end of the "for s < len(src)".
+	// This is the end of the "for s < len(src) && d < dLimit".
 	//
-	// if d != len(dst) { etc }
-	CMP R10, R7
-	BNE errCorrupt
-
-	// return 0
-	MOVD $0, ret+48(FP)
+	// return s, d, 0
+	SUB  R11, R6, R6
+	SUB  R8, R7, R7
+	MOVD R6, s+64(FP)
+	MOVD R7, d+72(FP)
+	MOVD $0, errCode+80(FP)
 	RET
 
 errCorrupt:
-	// return decodeErrCodeCorrupt
+	// return 0, 0, decodeErrCodeCorrupt
+	MOVD $0, R2
+	MOVD R2, s+64(FP)
+	MOVD R2, d+72(FP)
 	MOVD $1, R2
-	MOVD R2, ret+48(FP)
+	MOVD R2, errCode+80(FP)
 	RET
