@@ -47,12 +47,16 @@ const (
 	decodeErrCodeUnsupportedLiteralLength = 2
 )
 
-// maxDecodeChunkSize is the most output one decode call may produce. decode is
+// maxDecodeChunkSize is the most input one decode call may consume. decode is
 // assembly on some architectures, and assembly is never an asynchronous
 // preemption point, so an unbounded call holds up every goroutine in the
 // process for as long as it runs whenever the collector stops the world.
 // Encode is already bounded the same way: it hands at most maxBlockSize to one
 // call to encodeBlock.
+//
+// The bound is on input because that is the loop condition decode already
+// tests, so it costs no extra work per tag. A copy tag expands by at most 64/3,
+// so this caps one call at a little over 1 MiB of output.
 const maxDecodeChunkSize = 64 * 1024
 
 // Decode returns the decoded form of src. The returned slice may be a sub-
@@ -73,9 +77,9 @@ func Decode(dst, src []byte) ([]byte, error) {
 		dst = make([]byte, dLen)
 	}
 	src = src[s:]
-	if dLen <= maxDecodeChunkSize {
+	if len(src) <= maxDecodeChunkSize {
 		// One call is already short enough; skip the chunk loop.
-		n, d, errCode := decode(dst, src, 0, dLen)
+		n, d, errCode := decode(dst, src, 0, len(src))
 		if errCode != 0 {
 			return nil, decodeError(errCode)
 		}
@@ -86,11 +90,11 @@ func Decode(dst, src []byte) ([]byte, error) {
 	}
 	d := 0
 	for len(src) > 0 {
-		dLimit := len(dst)
-		if dLimit-d > maxDecodeChunkSize {
-			dLimit = d + maxDecodeChunkSize
+		sLimit := len(src)
+		if sLimit > maxDecodeChunkSize {
+			sLimit = maxDecodeChunkSize
 		}
-		n, dNext, errCode := decode(dst, src, d, dLimit)
+		n, dNext, errCode := decode(dst, src, d, sLimit)
 		if errCode != 0 {
 			return nil, decodeError(errCode)
 		}

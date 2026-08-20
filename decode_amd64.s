@@ -11,7 +11,7 @@
 // The asm code generally follows the pure Go code in decode_other.go, except
 // where marked with a "!!!".
 
-// func decode(dst, src []byte, dStart, dLimit int) (s, d, errCode int)
+// func decode(dst, src []byte, dStart, sLimit int) (s, d, errCode int)
 //
 // All local variables fit into registers. The non-zero stack size is only to
 // spill registers and push args when issuing a CALL. The register allocation:
@@ -22,11 +22,11 @@
 //	- SI	&src[s]
 //	- DI	&dst[d]
 //	+ R8	dst_base
-//	+ R9	dst_base + dLimit
+//	+ R9	src_base + src_len
 //	+ R10	dst_base + dst_len
 //	+ R11	src_base
 //	+ R12	src_len
-//	+ R13	src_base + src_len
+//	+ R13	src_base + sLimit
 //	- R14	used by doCopy
 //	- R15	used by doCopy
 //
@@ -34,7 +34,7 @@
 // function, and after a CALL returns, and are not otherwise modified.
 //
 // The d variable is implicitly DI - R8,  and len(dst)-d is R10 - DI.
-// The s variable is implicitly SI - R11, and len(src)-s is R13 - SI.
+// The s variable is implicitly SI - R11, and len(src)-s is R9 - SI.
 // decode is deliberately not NOSPLIT. Assembly is never an asynchronous
 // preemption point, so the stack check that a normal prologue gets is the only
 // place a collection can preempt a decode. Decode relies on it by calling this
@@ -42,24 +42,22 @@
 TEXT ·decode(SB), $48-88
 	// Initialize SI, DI and R8-R13.
 	MOVQ dst_base+0(FP), R8
-	MOVQ dst_len+8(FP), R9
+	MOVQ dst_len+8(FP), AX
 	MOVQ R8, DI
 	MOVQ R8, R10
-	ADDQ R9, R10
+	ADDQ AX, R10
 	MOVQ src_base+24(FP), R11
 	MOVQ src_len+32(FP), R12
 	MOVQ R11, SI
+	MOVQ R11, R9
+	ADDQ R12, R9
 	MOVQ R11, R13
-	ADDQ R12, R13
+	ADDQ sLimit+56(FP), R13
 	ADDQ dStart+48(FP), DI
-	MOVQ dLimit+56(FP), R9
-	ADDQ R8, R9
 
 loop:
-	// for s < len(src) && d < dLimit
+	// for s < sLimit
 	CMPQ SI, R13
-	JEQ  end
-	CMPQ DI, R9
 	JAE  end
 
 	// CX = uint32(src[s])
@@ -104,7 +102,7 @@ doLit:
 	// BX = len(src) - s
 	MOVQ R10, AX
 	SUBQ DI, AX
-	MOVQ R13, BX
+	MOVQ R9, BX
 	SUBQ SI, BX
 
 	// !!! Try a faster technique for short (16 or fewer bytes) copies.
@@ -171,15 +169,15 @@ callMemmove:
 	MOVQ 32(SP), SI
 	MOVQ 40(SP), CX
 	MOVQ dst_base+0(FP), R8
-	MOVQ dst_len+8(FP), R9
+	MOVQ dst_len+8(FP), AX
 	MOVQ R8, R10
-	ADDQ R9, R10
-	MOVQ dLimit+56(FP), R9
-	ADDQ R8, R9
+	ADDQ AX, R10
 	MOVQ src_base+24(FP), R11
 	MOVQ src_len+32(FP), R12
+	MOVQ R11, R9
+	ADDQ R12, R9
 	MOVQ R11, R13
-	ADDQ R12, R13
+	ADDQ sLimit+56(FP), R13
 
 	// d += length
 	// s += length
@@ -485,7 +483,7 @@ verySlowForwardCopy:
 // ----------------------------------------
 
 end:
-	// This is the end of the "for s < len(src) && d < dLimit".
+	// This is the end of the "for s < sLimit".
 	//
 	// return s, d, 0
 	SUBQ R11, SI

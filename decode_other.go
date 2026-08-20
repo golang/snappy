@@ -9,14 +9,14 @@ package snappy
 // decode writes the decoding of src to dst[dStart:]. It assumes that the
 // varint-encoded length of the decompressed bytes has already been read.
 //
-// decode stops once d reaches dLimit, always at a tag boundary, so that a
-// caller can bound the work one call does. It returns the number of bytes of
-// src consumed, the value d reached, and 0 on success or a decodeErrCodeXxx
-// error code on failure.
-func decode(dst, src []byte, dStart, dLimit int) (int, int, int) {
+// decode stops once s reaches sLimit, always at a tag boundary, so that a
+// caller can bound the work one call does. sLimit must not exceed len(src). It
+// returns the number of bytes of src consumed, the value d reached, and 0 on
+// success or a decodeErrCodeXxx error code on failure.
+func decode(dst, src []byte, dStart, sLimit int) (int, int, int) {
 	d := dStart
 	var s, offset, length int
-	for s < len(src) && d < dLimit {
+	for s < sLimit {
 		switch src[s] & 0x03 {
 		case tagLiteral:
 			x := uint32(src[s] >> 2)

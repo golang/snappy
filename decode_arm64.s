@@ -11,7 +11,7 @@
 // The asm code generally follows the pure Go code in decode_other.go, except
 // where marked with a "!!!".
 
-// func decode(dst, src []byte, dStart, dLimit int) (s, d, errCode int)
+// func decode(dst, src []byte, dStart, sLimit int) (s, d, errCode int)
 //
 // All local variables fit into registers. The non-zero stack size is only to
 // spill registers and push args when issuing a CALL. The register allocation:
@@ -22,20 +22,19 @@
 //	- R6	&src[s]
 //	- R7	&dst[d]
 //	+ R8	dst_base
-//	+ R9	dst_len
+//	+ R9	src_base + src_len
 //	+ R10	dst_base + dst_len
 //	+ R11	src_base
 //	+ R12	src_len
-//	+ R13	src_base + src_len
-//	+ R19	dst_base + dLimit
+//	+ R13	src_base + sLimit
 //	- R14	used by doCopy
 //	- R15	used by doCopy
 //
-// The registers R8-R13 and R19 (marked with a "+") are set at the start of the
+// The registers R8-R13 (marked with a "+") are set at the start of the
 // function, and after a CALL returns, and are not otherwise modified.
 //
 // The d variable is implicitly R7 - R8,  and len(dst)-d is R10 - R7.
-// The s variable is implicitly R6 - R11, and len(src)-s is R13 - R6.
+// The s variable is implicitly R6 - R11, and len(src)-s is R9 - R6.
 // decode is deliberately not NOSPLIT. Assembly is never an asynchronous
 // preemption point, so the stack check that a normal prologue gets is the only
 // place a collection can preempt a decode. Decode relies on it by calling this
@@ -43,25 +42,24 @@
 TEXT ·decode(SB), $56-88
 	// Initialize R6, R7 and R8-R13.
 	MOVD dst_base+0(FP), R8
-	MOVD dst_len+8(FP), R9
+	MOVD dst_len+8(FP), R2
 	MOVD R8, R7
 	MOVD R8, R10
-	ADD  R9, R10, R10
+	ADD  R2, R10, R10
 	MOVD src_base+24(FP), R11
 	MOVD src_len+32(FP), R12
 	MOVD R11, R6
+	MOVD R11, R9
+	ADD  R12, R9, R9
 	MOVD R11, R13
-	ADD  R12, R13, R13
+	MOVD sLimit+56(FP), R2
+	ADD  R2, R13, R13
 	MOVD dStart+48(FP), R2
 	ADD  R2, R7, R7
-	MOVD dLimit+56(FP), R19
-	ADD  R8, R19, R19
 
 loop:
-	// for s < len(src) && d < dLimit
+	// for s < sLimit
 	CMP R13, R6
-	BEQ end
-	CMP R19, R7
 	BHS end
 
 	// R4 = uint32(src[s])
@@ -108,7 +106,7 @@ doLit:
 	// R3 = len(src) - s
 	MOVD R10, R2
 	SUB  R7, R2, R2
-	MOVD R13, R3
+	MOVD R9, R3
 	SUB  R6, R3, R3
 
 	// !!! Try a faster technique for short (16 or fewer bytes) copies.
@@ -175,15 +173,16 @@ callMemmove:
 	MOVD 40(RSP), R6
 	MOVD 48(RSP), R4
 	MOVD dst_base+0(FP), R8
-	MOVD dst_len+8(FP), R9
+	MOVD dst_len+8(FP), R2
 	MOVD R8, R10
-	ADD  R9, R10, R10
+	ADD  R2, R10, R10
 	MOVD src_base+24(FP), R11
 	MOVD src_len+32(FP), R12
+	MOVD R11, R9
+	ADD  R12, R9, R9
 	MOVD R11, R13
-	ADD  R12, R13, R13
-	MOVD dLimit+56(FP), R19
-	ADD  R8, R19, R19
+	MOVD sLimit+56(FP), R2
+	ADD  R2, R13, R13
 
 	// d += length
 	// s += length
@@ -490,7 +489,7 @@ verySlowForwardCopy:
 	// ----------------------------------------
 
 end:
-	// This is the end of the "for s < len(src) && d < dLimit".
+	// This is the end of the "for s < sLimit".
 	//
 	// return s, d, 0
 	SUB  R11, R6, R6
