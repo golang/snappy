@@ -25,6 +25,17 @@
 	SLLI $1, slot; \
 	ADD table, slot
 
+#define PROBE_NEXT() \
+	HASH_SLOT(A5, T1); \
+	MOVHU (T1), candidate; \
+	SUB srcBase, cursor, T2; \
+	MOVH T2, (T1); \
+	ADD srcBase, candidate; \
+	MOVW (candidate), T2; \
+	BEQ A5, T2, match; \
+	ADD $1, cursor; \
+	MOVW (cursor), A5
+
 TEXT ·encodeBlock(SB), $32768-56
 	NO_LOCAL_POINTERS
 	MOV dst_base+0(FP), output
@@ -61,6 +72,17 @@ clearWords:
 	MOVW (cursor), A5
 startSearch:
 	MOV $32, A6
+	ADD $16, cursor, T0
+	BGTU T0, searchEnd, probe
+	MOV $4, A7
+probeFour:
+	PROBE_NEXT()
+	PROBE_NEXT()
+	PROBE_NEXT()
+	PROBE_NEXT()
+	SUB $1, A7
+	BNEZ A7, probeFour
+	ADD $16, A6
 probe:
 	SRLI $5, A6, T0
 	ADD T0, cursor, A7
