@@ -5,6 +5,13 @@
 #include "funcdata.h"
 #include "go_asm.h"
 
+#ifdef GORISCV64_rva22u64
+#define MATCH_ZBB
+#endif
+#ifdef GORISCV64_rva23u64
+#define MATCH_ZBB
+#endif
+
 // Persistent encodeBlock state. The private NOSPLIT leaf routines below use
 // A0-A3 for arguments/results and T0-T4 as scratch, preserving these registers.
 #define srcBase    S1
@@ -114,13 +121,14 @@ extend:
 	SUB candidate, cursor, A1
 	SUB cursor, nextEmit, A2
 	MOV output, A0
+	BGEU nextEmit, searchEnd, finalMatch
+	MOV -1(nextEmit), A7
 	CALL copyTags<>(SB)
 	MOV A0, output
 	MOV nextEmit, cursor
-	BGEU cursor, searchEnd, remainder
 
 	// Insert cursor-1 before probing cursor, including when their hashes collide.
-	MOV -1(cursor), T0
+	MOV A7, T0
 	HASH_SLOT(T0, T1)
 	SUB srcBase, cursor, T2
 	SUB $1, T2, T3
@@ -138,6 +146,9 @@ extend:
 	ADD $1, cursor
 	JMP startSearch
 
+finalMatch:
+	CALL copyTags<>(SB)
+	MOV A0, output
 remainder:
 	BEQ nextEmit, srcEnd, encoded
 	MOV output, A0
@@ -177,6 +188,10 @@ matchWords:
 	JMP matchWords
 differingWord:
 	XOR T2, T1
+#ifdef MATCH_ZBB
+	CTZ T1, T1
+	SRLI $3, T1
+#else
 	// (diff-1) & ^diff marks the bits below the first mismatch. Sum the
 	// top bit of each byte to count complete matching bytes without Zbb.
 	SUB $1, T1, T2
@@ -187,6 +202,7 @@ differingWord:
 	AND T2, T1
 	MUL T2, T1
 	SRLI $56, T1
+#endif
 	ADD T1, A0
 	RET
 matchBytes:
