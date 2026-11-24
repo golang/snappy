@@ -416,6 +416,31 @@ func TestDecodeCopy4(t *testing.T) {
 	}
 }
 
+func TestDecodeCopyAtEnd(t *testing.T) {
+	var seed [65]byte
+	for pos := range seed {
+		seed[pos] = byte(pos + 1)
+	}
+	for length := 1; length <= 64; length++ {
+		for offset := 1; offset <= len(seed); offset++ {
+			want := append([]byte(nil), seed[:]...)
+			for copied := 0; copied < length; copied++ {
+				want = append(want, want[len(want)-offset])
+			}
+			var header [binary.MaxVarintLen64]byte
+			used := binary.PutUvarint(header[:], uint64(len(want)))
+			block := append(header[:used], 60<<2, byte(len(seed)-1))
+			block = append(block, seed[:]...)
+			block = append(block, byte(length-1)<<2|tagCopy2, byte(offset), 0)
+			dst := bytes.Repeat([]byte{0xff}, len(want)+2)
+			got, err := Decode(dst[1:len(dst)-1], block)
+			if err != nil || !bytes.Equal(got, want) || dst[0] != 0xff || dst[len(dst)-1] != 0xff {
+				t.Fatalf("length=%d offset=%d: err=%v, dst=%x, want=%x", length, offset, err, dst, want)
+			}
+		}
+	}
+}
+
 // TestDecodeLengthOffset tests decoding an encoding of the form literal +
 // copy-length-offset + literal. For example: "abcdefghijkl" + "efghij" + "AB".
 func TestDecodeLengthOffset(t *testing.T) {

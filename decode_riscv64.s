@@ -4,6 +4,15 @@
 #include "textflag.h"
 #include "go_asm.h"
 
+#ifdef GORISCV64_rva23u64
+#include "asm_riscv64.h"
+#define SNAPPY_RVV
+#else
+#ifdef const_offsetRISCV64HasV
+#define SNAPPY_RVV
+#endif
+#endif
+
 #define input    A0
 #define inputEnd A1
 #define output   A2
@@ -64,11 +73,13 @@ checkCopy:
 	BGTU length, T0, corrupt
 	SUB offset, output, from
 	MOV $8, T1
-	// For offset >= 8, each word is fully produced before it is read.
+#ifdef SNAPPY_RVV
+	BGTU length, T1, wideBackref
 	BLTU offset, T1, bytes
-	BLEU length, T1, shortCopy
-	JMP words
-shortCopy:
+#else
+	BLTU offset, T1, bytes
+	BGTU length, T1, words
+#endif
 	BLTU T0, T1, bytes
 	JMP copyWord
 
@@ -98,7 +109,7 @@ literalLength:
 	MOV input, from
 	ADD length, input
 	MOV $8, T1
-	BGTU length, T1, words
+	BGTU length, T1, readyCopy
 	BLTU T0, T1, bytes
 	BLTU T2, T1, bytes
 copyWord:
@@ -107,6 +118,60 @@ copyWord:
 	MOV T2, (output)
 	ADD length, output
 	JMP nextTag
+readyCopy:
+#ifdef SNAPPY_RVV
+#ifndef hasV
+	MOVB internal∕cpu·RISCV64+const_offsetRISCV64HasV(SB), X5
+	BEQZ X5, words
+#endif
+	MOV $64, T0
+	BLEU length, T0, shortVector
+	VSETVLI length, E8, M8, TA, MA, T2
+literalChunks:
+	VLE8V (from), V8
+	VSE8V V8, (output)
+	ADD T2, from
+	ADD T2, output
+	SUB T2, length
+	BGEU length, T2, literalChunks
+	BEQZ length, nextTag
+	VSETVLI length, E8, M8, TA, MA, ZERO
+	JMP loadVector
+
+wideBackref:
+#ifndef hasV
+	MOVB internal∕cpu·RISCV64+const_offsetRISCV64HasV(SB), X5
+	BEQZ X5, scalarWideBackref
+#endif
+	BGEU offset, length, shortVector
+	MOV $1, T0
+	BEQ offset, T0, repeatByte
+expandPattern:
+	VSETVLI offset, E8, M4, TA, MA, ZERO
+	VLE8V (from), V8
+	VSE8V V8, (output)
+	ADD offset, output
+	SUB offset, length
+	SLLI $1, offset
+	BLTU offset, length, expandPattern
+shortVector:
+	VSETVLI length, E8, M4, TA, MA, ZERO
+loadVector:
+	VLE8V (from), V8
+storeVector:
+	VSE8V V8, (output)
+	ADD length, output
+	JMP nextTag
+repeatByte:
+	MOVBU (from), T0
+	VSETVLI length, E8, M4, TA, MA, ZERO
+	VMVVX T0, V8
+	JMP storeVector
+#ifndef hasV
+scalarWideBackref:
+	BLTU offset, T1, bytes
+#endif
+#endif
 words:
 	BLTU length, T1, bytes
 	MOV (from), T2
