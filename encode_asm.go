@@ -5,7 +5,7 @@
 // +build !appengine
 // +build gc
 // +build !noasm
-// +build amd64 arm64
+// +build amd64 arm64 riscv64
 
 package snappy
 

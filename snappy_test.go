@@ -594,6 +594,23 @@ func TestExtendMatch(t *testing.T) {
 	}
 }
 
+func TestExtendMatchDifferingBit(t *testing.T) {
+	var storage [48]byte
+	for alignment := 0; alignment < 8; alignment++ {
+		src := storage[alignment : alignment+40]
+		const start = 19
+		for mismatch := start; mismatch < len(src); mismatch++ {
+			for bit := uint(0); bit < 8; bit++ {
+				src[mismatch] = 1 << bit
+				if got := extendMatch(src, 0, start); got != mismatch {
+					t.Fatalf("alignment=%d mismatch=%d bit=%d: got %d", alignment, mismatch, bit, got)
+				}
+				src[mismatch] = 0
+			}
+		}
+	}
+}
+
 const snappytoolCmdName = "cmd/snappytool/snappytool"
 
 func skipTestSameEncodingAsCpp() (msg string) {
